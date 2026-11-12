@@ -7,12 +7,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy import case, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from supabase_auth.types import User as AuthUser
-
 from app.database import getSession
 from app.datetime_utils import to_due_date, to_utc
 from app.limits import DESCRIPTION_MAX, NAME_MAX
 from app.model import Account, AccountRole, Task, TaskStatus, AuditLog
+from app.security import TokenUser as AuthUser
 from app.service import account_service
 
 

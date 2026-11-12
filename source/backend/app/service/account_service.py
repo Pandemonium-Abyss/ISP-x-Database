@@ -1,25 +1,21 @@
 import logging
 import uuid
-from contextlib import suppress
 from typing import Annotated
 
+import jwt
 from fastapi import Depends, HTTPException, status
-from fastapi.concurrency import run_in_threadpool
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import func, or_, select
-from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from sqlalchemy import delete, func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from supabase_auth.errors import AuthApiError, AuthError
-from supabase_auth.types import User as AuthUser
 
 from app.database import getSession
-from app.dependencies import password_check, supabase
-from app.model import Account, AccountRole, AuditLog, auth_users
+from app.model import Account, AccountRole, AuditLog, AuthUser
+from app.security import TokenUser, decode_access_token, hash_password, password_matches
 
 logger = logging.getLogger(__name__)
 
-bearer_scheme = HTTPBearer(auto_error=False, description="Supabase access token")
+bearer_scheme = HTTPBearer(auto_error=False, description="Access token from POST /auth/login")
 
 UNAUTHENTICATED = HTTPException(
     status_code=status.HTTP_401_UNAUTHORIZED,
@@ -29,20 +25,20 @@ UNAUTHENTICATED = HTTPException(
 
 def get_current_auth_user(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
-) -> AuthUser:
+) -> TokenUser:
+    """Who the token says is calling. Signature and expiry only - whether that
+    user still exists, and whether they are still allowed in, is
+    `get_current_account`'s job."""
     if credentials is None:
         raise UNAUTHENTICATED
     try:
-        response = supabase.auth.get_user(credentials.credentials)
-    except AuthError as exc:
+        return decode_access_token(credentials.credentials)
+    except jwt.PyJWTError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
-    if response is None or response.user is None:
-        raise UNAUTHENTICATED
-    return response.user
 
 
 ADMIN_ROLES = frozenset({AccountRole.LAB_OWNER, AccountRole.LAB_ADMIN})
@@ -53,7 +49,7 @@ def is_admin(account: Account) -> bool:
 
 
 async def get_current_account(
-    auth_user: Annotated[AuthUser, Depends(get_current_auth_user)],
+    auth_user: Annotated[TokenUser, Depends(get_current_auth_user)],
     session: Annotated[AsyncSession, Depends(getSession)],
 ) -> Account:
     """The account row behind the logged in user, so we can read their role.
@@ -123,9 +119,10 @@ def audit_account(
 ACCOUNT_CONFLICTS = {
     "account_username_key": "That username is already taken",
     "account_email_key": "That email address is already taken",
+    "auth_users_email_key": "That email address is already taken",
     "account_pkey": "An account already exists for that login",
     "account_quota_check": "Quota cannot be negative",
-    "account_id_fkey": "There is no Supabase login behind that account id",
+    "account_id_fkey": "There is no login behind that account id",
 }
 
 
@@ -141,38 +138,27 @@ def account_conflict(exc: IntegrityError, fallback: str) -> HTTPException:
 
 
 STALE_LOGIN = (
-    "{email} is still registered to a Supabase login with no account behind "
-    "it. Delete that user in the Supabase dashboard, or use another address."
+    "{email} is still registered to a login in auth.users with no account "
+    "behind it. Delete that row, or use another address."
 )
 
 
 async def auth_login_for_email(session: AsyncSession, email: str) -> uuid.UUID | None:
     """The auth.users id holding an address, if one does.
 
-    The account table only mirrors Supabase, so an address can be free here
-    and still refused there - a login whose account row was deleted keeps its
-    email forever. Reading auth.users lets us name that instead of handing the
-    admin Supabase's own wording for it.
-
-    Only a check, never the authority: if the database role cannot see the
-    auth schema we give up quietly and let Supabase do the refusing."""
-    try:
-        return await session.scalar(
-            select(auth_users.c.id).where(func.lower(auth_users.c.email) == email)
-        )
-    except SQLAlchemyError:
-        # The failed statement poisons the transaction, so clear it before the
-        # caller goes on to write anything.
-        logger.exception("Could not read auth.users while checking %s", email)
-        await session.rollback()
-        return None
+    The account table only mirrors the login, so an address can be free there
+    and still taken here - a user who signed up but never claimed an account
+    row holds their email either way. Reading auth.users lets us say so."""
+    return await session.scalar(
+        select(AuthUser.id).where(func.lower(AuthUser.email) == email)
+    )
 
 
 async def assert_login_available(
     session: AsyncSession, username: str, email: str
 ) -> None:
-    """Checked before the auth user exists, so the usual clash never leaves a
-    Supabase login behind that we then have to delete again."""
+    """Checked up front so the clash comes back as our own 409 rather than as
+    whichever unique constraint the insert happened to hit first."""
     clash = await session.scalar(
         select(Account).where(
             or_(Account.username == username, Account.email == email)
@@ -196,51 +182,37 @@ async def assert_login_available(
     )
 
 
-async def create_auth_user(email: str, password: str, username: str) -> uuid.UUID:
-    """The Supabase half of creating a member. `email_confirm` marks the
-    address confirmed on the spot: nothing is emailed, the admin hands the
-    password over themselves.
+async def create_auth_user(
+    session: AsyncSession, email: str, password: str
+) -> uuid.UUID:
+    """The login half of creating a member, added to the caller's session.
 
-    The supabase client is blocking, so it goes to the threadpool rather than
-    stalling the event loop."""
+    It commits with the account row rather than before it, so the two can no
+    longer end up disagreeing: there is no second system left to undo by hand
+    when the insert after this one fails."""
+    login = AuthUser(
+        id=uuid.uuid4(), email=email, encrypted_password=hash_password(password)
+    )
+    session.add(login)
+
     try:
-        response = await run_in_threadpool(
-            supabase.auth.admin.create_user,
-            {
-                "email": email,
-                "password": password,
-                "email_confirm": True,
-                "user_metadata": {"username": username},
-            },
-        )
-    except AuthApiError as exc:
-        # Weak passwords and addresses already in auth.users land here. The
-        # message is Supabase's own ("Password should be at least ..."), and it
-        # is the only hint the admin gets, so pass it through.
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Supabase rejected that login: {exc.message}",
-        ) from exc
+        # Flushed, not committed. The account row that follows points at this
+        # id with a foreign key, and nothing tells the ORM that these two go
+        # in that order, so the login is sent now and the whole transaction
+        # still stands or falls together.
+        await session.flush()
+    except IntegrityError as exc:
+        await session.rollback()
+        raise account_conflict(exc, "That email address is already taken") from exc
 
-    if response is None or response.user is None:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Supabase did not return the new user",
-        )
-
-    return uuid.UUID(response.user.id)
+    return login.id
 
 
-async def delete_auth_user(user_id: uuid.UUID) -> bool:
-    """False if the login is still there, so a caller that can say so does.
-    The create path is already failing its request and ignores this: there the
-    log is all we can offer."""
-    try:
-        await run_in_threadpool(supabase.auth.admin.delete_user, str(user_id))
-    except Exception:
-        logger.exception("Could not delete auth user %s", user_id)
-        return False
-    return True
+async def delete_auth_user(session: AsyncSession, user_id: uuid.UUID) -> None:
+    """Dropping the login is what removes the account row with it -
+    account.id is ON DELETE CASCADE from auth.users - and it frees the email
+    address for reuse, which deleting only the mirror would not."""
+    await session.execute(delete(AuthUser).where(AuthUser.id == user_id))
 
 
 WRONG_PASSWORD = HTTPException(
@@ -249,60 +221,57 @@ WRONG_PASSWORD = HTTPException(
 )
 
 
-async def verify_password(email: str, password: str) -> None:
-    def attempt() -> None:
-        try:
-            response = password_check.auth.sign_in_with_password(
-                {"email": email, "password": password}
-            )
-        except AuthApiError as exc:
-            # 400 is "Invalid login credentials"; a rate limit or an outage is not a wrong password, so dont say it was.
-            if exc.status in (400, 401, 403):
-                raise WRONG_PASSWORD from exc
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"Supabase could not check that password: {exc.message}",
-            ) from exc
-
-        session = response.session
-        if session is None:
-            return
-        # `local` and not the default `global`, which would sign them out of their own browser too.
-        with suppress(Exception):
-            password_check.auth.admin.sign_out(session.access_token, "local")
-
-    await run_in_threadpool(attempt)
+async def verify_password(session: AsyncSession, email: str, password: str) -> None:
+    """Confirms a password against auth.users without signing anybody in, so
+    checking one no longer costs a round trip and a session to throw away."""
+    stored = await session.scalar(
+        select(AuthUser.encrypted_password).where(func.lower(AuthUser.email) == email)
+    )
+    if not password_matches(password, stored):
+        raise WRONG_PASSWORD
 
 
-async def update_auth_user(user_id: uuid.UUID, attributes: dict) -> None:
-    """The Supabase half of changing an email or a password - the account table only ever mirrors the address."""
-    try:
-        response = await run_in_threadpool(
-            supabase.auth.admin.update_user_by_id, str(user_id), attributes
-        )
-    except AuthError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Supabase rejected that change: {exc.message}",
-        ) from exc
-
-    if response is None or response.user is None:
+async def get_auth_user_or_502(session: AsyncSession, user_id: uuid.UUID) -> AuthUser:
+    """The login row behind an account that is already known to exist. Missing
+    means the foreign key let us down, which is ours to fix, not the caller's."""
+    login = await session.get(AuthUser, user_id)
+    if login is None:
+        logger.error("Account %s has no row in auth.users", user_id)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Supabase did not confirm the change",
+            detail="The login behind that account is missing",
         )
+    return login
+
+
+async def set_auth_email(session: AsyncSession, user_id: uuid.UUID, email: str) -> None:
+    """Points the login at a different address. The account row mirrors it, and
+    the caller commits both together."""
+    login = await get_auth_user_or_502(session, user_id)
+    login.email = email
+
+
+async def set_auth_password(
+    session: AsyncSession, user_id: uuid.UUID, password: str
+) -> None:
+    """Nothing is revoked, so nobody with a live token is bounced to the login
+    page - the same way a password change behaved under Supabase."""
+    login = await get_auth_user_or_502(session, user_id)
+    login.encrypted_password = hash_password(password)
 
 
 async def assert_email_available(
     session: AsyncSession, email: str, account_id: uuid.UUID
 ) -> None:
-    """Checked before the login is touched, so a clash cannot leave Supabase and the account row disagreeing."""
+    """Checked before anything is written, so the clash is reported in the
+    caller's own words rather than as a bare unique violation."""
     clash = await session.scalar(
         select(Account).where(Account.email == email, Account.id != account_id)
     )
     if clash is None:
-        # Their own id coming back means Supabase already holds the address and
-        # only the mirror is behind, which is the one case worth going ahead on.
+        # Their own id coming back means the login already holds the address
+        # and only the mirror is behind, which is the one case worth going
+        # ahead on.
         holder = await auth_login_for_email(session, email)
         if holder is not None and holder != account_id:
             raise HTTPException(

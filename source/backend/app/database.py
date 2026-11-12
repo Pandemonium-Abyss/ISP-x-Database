@@ -1,18 +1,18 @@
 import asyncio
 import os
-import uuid
 from collections.abc import AsyncIterator
 
 from dotenv import load_dotenv
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.model import Base
 
 load_dotenv()
 
-cn: str | None = os.environ.get("SUPABASE_DB_URL")
+cn: str | None = os.environ.get("DATABASE_URL")
 if not cn:
-    raise ValueError("Connection string is missing from .env")
+    raise ValueError("DATABASE_URL is missing from .env")
 
 engine = create_async_engine(
     cn,
@@ -20,11 +20,6 @@ engine = create_async_engine(
     max_overflow=5,
     pool_pre_ping=True,
     pool_recycle=1800,
-    connect_args={
-        "statement_cache_size": 0,
-        "prepared_statement_cache_size": 0,
-        "prepared_statement_name_func": lambda: f"__asyncpg_{uuid.uuid4()}__",
-    },
 )
 SessionLocal = async_sessionmaker(bind=engine, expire_on_commit=False)
 
@@ -34,6 +29,9 @@ async def getSession() -> AsyncIterator[AsyncSession]:
 
 async def create_tables() -> None:
     async with engine.begin() as conn:
+        # auth.users is ours now rather than Supabase's, so the schema that
+        # holds it has to exist before create_all can put it there.
+        await conn.execute(text("CREATE SCHEMA IF NOT EXISTS auth"))
         await conn.run_sync(Base.metadata.create_all)
 
 async def setup() -> None:

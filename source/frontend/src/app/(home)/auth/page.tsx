@@ -2,7 +2,7 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import { signInWithPassword } from "@/lib/auth/session";
 
 // useSearchParams needs a Suspense boundary above it during prerender.
 export default function AuthPage() {
@@ -29,15 +29,9 @@ function AuthForm() {
     setLoading(true);
 
     try {
-      const supabase = createClient();
-      const { error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (error) {
-        throw new Error(error.message);
-      }
+      // Stores the token in the cookie the middleware reads, so the push
+      // below is not sent straight back here.
+      await signInWithPassword(email, password);
 
       router.push("/dashboard");
     } catch (err) {

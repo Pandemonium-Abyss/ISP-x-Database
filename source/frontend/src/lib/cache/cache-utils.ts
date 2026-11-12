@@ -1,13 +1,9 @@
-import { createClient } from "@/lib/supabase/client";
+import { getSession } from "@/lib/auth/session";
 
 // signed in user id, null if no session or lookup fail
 export async function getUserId(): Promise<string | null> {
   try {
-    const {
-      data: { session },
-    } = await createClient().auth.getSession();
-
-    return session?.user.id ?? null;
+    return getSession()?.user.id ?? null;
   } catch {
     return null;
   }

@@ -30,9 +30,39 @@ services:
       - ./source/backend:/app/backend/
     env_file:
       - ./source/.env
+    depends_on:
+      # The app creates any missing tables on startup, so it needs a database
+      # that is actually accepting connections, not just a started container.
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 5s
       retries: 10
     environment:
       - WATCHFILES_FORCE_POLLING=true
+  postgres:
+    image: postgres:17-alpine
+    # Published so you can reach it from your machine (psql, or pytest with
+    # DATABASE_URL pointed at localhost). Inside compose the host is
+    # "postgres" on 5432, which is what source/.env uses, so only the left
+    # number here matters to you.
+    #
+    # 5433 and not 5432: a PostgreSQL installed on your own machine holds
+    # 5432, and compose cannot publish a port something else is already bound
+    # to. Change the left number if 5433 is taken too.
+    ports:
+      - "5433:5432"
+    env_file:
+      - ./source/.env
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # $$ so compose leaves these for the container's own shell to expand.
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  postgres-data:

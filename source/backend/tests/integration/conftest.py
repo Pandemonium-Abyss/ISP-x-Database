@@ -1,4 +1,4 @@
-"""Fixtures for the tests that hit the real Supabase database.
+"""Fixtures for the tests that hit a real PostgreSQL database.
 
 Rules these tests follow so they are safe against shared data:
 - The caller is an existing active admin account (override with
@@ -6,11 +6,11 @@ Rules these tests follow so they are safe against shared data:
   and every permission check run for real.
 - Every row a test writes is tracked, and the teardown deletes it together
   with its audit rows. Tickets and tasks live under a category created for
-  that test. Accounts created through the API have their Supabase login
+  that test. Accounts created through the API have their auth.users login
   removed as well.
 - The one existing Lab User the tests sign in as is only ever used to read,
   or to be assigned to a task that is deleted again.
-- They skip when SUPABASE_DB_URL is missing or SKIP_DB_TESTS is set.
+- They skip when DATABASE_URL is missing or SKIP_DB_TESTS is set.
 
 All database work in a test goes through `db.run(coro_fn)`, which executes on
 the TestClient's own event loop, so one pooled engine serves both the app and
@@ -21,7 +21,6 @@ import asyncio
 import os
 import uuid
 from collections import defaultdict
-from contextlib import suppress
 from types import SimpleNamespace
 
 import pytest
@@ -31,13 +30,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.database import getSession
-from app.dependencies import supabase
 from app.main import app
 from app.model import (
     Account,
     AccountRole,
     Announcement,
     AuditLog,
+    AuthUser,
     Category,
     Task,
     TaskStatus,
@@ -48,14 +47,6 @@ from app.service import account_service
 
 AUTH_HEADER = {"Authorization": "Bearer integration-test"}
 
-CONNECT_ARGS = {
-    # Same as app.database: the Supabase transaction pooler cannot keep
-    # prepared statements between requests.
-    "statement_cache_size": 0,
-    "prepared_statement_cache_size": 0,
-    "prepared_statement_name_func": lambda: f"__asyncpg_{uuid.uuid4()}__",
-}
-
 
 def unique(prefix: str = "pytest") -> str:
     return f"{prefix} {uuid.uuid4().hex[:8]}"
@@ -63,9 +54,9 @@ def unique(prefix: str = "pytest") -> str:
 
 @pytest.fixture(scope="session")
 def db_url() -> str:
-    url = os.environ.get("SUPABASE_DB_URL")
+    url = os.environ.get("DATABASE_URL")
     if not url or os.environ.get("SKIP_DB_TESTS"):
-        pytest.skip("SUPABASE_DB_URL not set or SKIP_DB_TESTS set")
+        pytest.skip("DATABASE_URL not set or SKIP_DB_TESTS set")
     return url
 
 
@@ -73,7 +64,7 @@ def _once(db_url: str, statement):
     """One query on a throwaway loop, for the session scoped lookups."""
 
     async def go():
-        engine = create_async_engine(db_url, poolclass=NullPool, connect_args=CONNECT_ARGS)
+        engine = create_async_engine(db_url, poolclass=NullPool)
         try:
             async with AsyncSession(engine) as s:
                 return await s.scalar(statement)
@@ -122,10 +113,10 @@ def lab_user_id(db_url) -> uuid.UUID:
 
 @pytest.fixture
 def client(db_url, me_id):
-    """The app with its session pointed at a per-test engine and the Supabase
+    """The app with its session pointed at a per-test engine and the bearer
     token check replaced. `client.login(account_id)` changes the caller."""
     engine = create_async_engine(
-        db_url, pool_size=3, max_overflow=2, pool_pre_ping=True, connect_args=CONNECT_ARGS
+        db_url, pool_size=3, max_overflow=2, pool_pre_ping=True
     )
     current = {"id": me_id, "email": None}
 
@@ -313,12 +304,12 @@ class DB:
             ):
                 if self.tracked[table]:
                     await s.execute(delete(model).where(model.id.in_(self.tracked[table])))
-            await s.commit()
 
-        for login in self.logins:
-            # Already gone when the DELETE endpoint did its job.
-            with suppress(Exception):
-                supabase.auth.admin.delete_user(str(login))
+            # The login outlives the account row it was deleted through, so
+            # take it too - otherwise the email address stays reserved.
+            if self.logins:
+                await s.execute(delete(AuthUser).where(AuthUser.id.in_(self.logins)))
+            await s.commit()
 
 
 @pytest.fixture

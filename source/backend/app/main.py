@@ -1,19 +1,26 @@
 from contextlib import asynccontextmanager
+from typing import Annotated
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import engine
-from app.dependencies import supabase
+from app.database import create_tables, engine, getSession
 from app.routers.account import accountRouter
 from app.routers.announcement import announcementRouter
 from app.routers.audit_log import auditLogRouter
+from app.routers.auth import authRouter
 from app.routers.category import categoryRouter
 from app.routers.task import taskRouter
 from app.routers.ticket import ticketRouter
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # The database is ours to set up now rather than Supabase's, and a fresh
+    # one starts empty. create_all only adds what is missing, so this is a
+    # no-op on every start after the first.
+    await create_tables()
     yield
     await engine.dispose()
 
@@ -33,12 +40,14 @@ def check_health():
     return {"Ok"}
 
 @app.get("/db", tags=["Systems"])
-def check_db():
-    if bool(supabase.table("ticket").select("*").execute()):
+async def check_db(session: Annotated[AsyncSession, Depends(getSession)]):
+    # A round trip through the pool, which is what this is really checking.
+    if await session.scalar(text("SELECT 1")) == 1:
         return {"Ok"}
     else:
         return {"Not Ok"}
 
+app.include_router(authRouter)
 app.include_router(ticketRouter)
 app.include_router(accountRouter)
 app.include_router(categoryRouter)

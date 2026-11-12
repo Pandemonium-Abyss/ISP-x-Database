@@ -20,6 +20,7 @@ from sqlalchemy import (
     String,
     Table,
     Text,
+    UniqueConstraint,
     func,
     text,
 )
@@ -30,13 +31,39 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 class Base(DeclarativeBase):
     pass
 
-auth_users = Table(
-    "users",
-    Base.metadata,
-    Column("id", UUID(as_uuid=True), primary_key=True),
-    Column("email", String(255)),
-    schema="auth",
-)
+class AuthUser(Base):
+    """The login behind an account: the half Supabase Auth used to hold.
+
+    It keeps the schema and table name Supabase used, so the account table's
+    foreign key and every id already stored against it carry over unchanged.
+    Nothing but a login lives here - the username, role and quota stay on
+    `account`, which still mirrors this row's email address."""
+
+    __tablename__ = "users"
+    __table_args__ = (
+        UniqueConstraint("email", name="auth_users_email_key"),
+        {"schema": "auth"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    email: Mapped[str] = mapped_column(String(255), nullable=False)
+    # A bcrypt hash, never the password. 60 characters today; the column is
+    # wider so a stronger algorithm later does not need a migration.
+    encrypted_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
+
+    def __repr__(self) -> str:
+        return f"<AuthUser {self.id} {self.email!r}>"
 
 class TicketStatus(str, enum.Enum):
     PENDING = "pending"
@@ -48,7 +75,7 @@ class TaskStatus(str, enum.Enum):
     COMPLETED = "completed"
 
 class AccountRole(str, enum.Enum):
-    LAB_OWNER = "Lab Owner"  # can only be set from the Supabase dashboard
+    LAB_OWNER = "Lab Owner"  # can only be set directly in the database
     LAB_ADMIN = "Lab Admin"
     LAB_USER = "Lab User"
 

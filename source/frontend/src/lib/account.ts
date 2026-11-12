@@ -1,7 +1,7 @@
 "use client";
 
 import { apiFetch, apiOrThrow, apiSendJson } from "@/lib/api";
-import { createClient } from "@/lib/supabase/client";
+import { clearSession, getSession } from "@/lib/auth/session";
 import { useMemo } from "react";
 import { cached, clearAllApiCache } from "@/lib/cache/cache";
 import { useFetched } from "@/lib/hooks";
@@ -97,7 +97,9 @@ export async function getMe({
 
 async function endSession(search = "") {
   await clearAllApiCache();
-  await createClient().auth.signOut();
+  // Nothing to tell the backend: the token is signed, not stored, so dropping
+  // the cookie is the whole of signing out.
+  clearSession();
 
   if (typeof window !== "undefined") {
     window.location.replace(`/auth${search}`);
@@ -111,9 +113,7 @@ export function signOut() {
 }
 
 async function fetchMe(): Promise<Account | null> {
-  const {
-    data: { session },
-  } = await createClient().auth.getSession();
+  const session = getSession();
 
   if (!session) return null;
 
@@ -171,7 +171,7 @@ export function updateAccount(
   );
 }
 
-// Both live in the Supabase login rather than the account table, hence their own endpoints instead of a key in AccountPatch.
+// Both live in the auth.users login rather than the account table, hence their own endpoints instead of a key in AccountPatch.
 // `accountId` is your own row, or that of somebody you outrank. The password is always the caller's own - an admin resetting a member never sees theirs.
 export function changeEmail(
   accountId: string,
@@ -221,16 +221,16 @@ export type UserKind = "member" | "trial";
 
 export type CreateUserPayload = {
   username: string;
-  // Supabase keys the login on this, and signing in is email plus password.
+  // The login is keyed on this, and signing in is email plus password.
   email: string;
   password: string;
   kind: UserKind;
   quota?: number | null;
 };
 
-// Creates both halves of a member at once - the Supabase login and the account
-// row behind it - so they can sign in with the credentials the admin just
-// picked. Nothing is emailed; the admin passes those on themselves. Always a
+// Creates both halves of a member at once - the auth.users login and the
+// account row behind it - so they can sign in with the credentials the admin
+// just picked. Nothing is emailed; the admin passes those on themselves. Always a
 // Lab User: promoting them is a separate call to assignRole.
 export async function adminCreateAccount(
   payload: CreateUserPayload,
@@ -280,7 +280,7 @@ const SIGNED_OUT = {
   isAdmin: false,
 } as const;
 
-// Resolves the signed in user against the account table, which is where the username lives - the Supabase access token only carries the id and email.
+// Resolves the signed in user against the account table, which is where the username lives - the access token only carries the id and email.
 export function useCurrentAccount(enabled: boolean = true): CurrentAccount {
   const { data: account, loading, error, reload } = useFetched(getMe, enabled);
 

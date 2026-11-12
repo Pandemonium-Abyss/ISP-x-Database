@@ -1,4 +1,4 @@
-import { createClient } from "@/lib/supabase/client";
+import { getSession } from "@/lib/auth/session";
 
 // Trailing slashes are stripped so a base of "http://localhost:8000/" and
 // "http://localhost:8000" behave the same: everyone's source/.env differs.
@@ -12,29 +12,18 @@ export async function apiFetch(
   path: string,
   init: RequestInit = {},
 ): Promise<Response> {
-  const supabase = createClient();
-
-  // one timer for session + request + also keep caller signal
+  // The timer covers the request itself; reading the session is a cookie
+  // lookup now, so there is nothing left to race it against.
   const timeout = AbortSignal.timeout(TIMEOUT_MS);
   const signal = init.signal
     ? AbortSignal.any([init.signal, timeout])
     : timeout;
 
-  // getSession can be hanged, so race it with timer
-  const {
-    data: { session },
-  } = await Promise.race([
-    supabase.auth.getSession(),
-    new Promise<never>((_, reject) => {
-      signal.addEventListener("abort", () => reject(signal.reason), {
-        once: true,
-      });
-    }),
-  ]);
+  const session = getSession();
 
   const headers = new Headers(init.headers);
   if (session) {
-    headers.set("Authorization", `Bearer ${session.access_token}`);
+    headers.set("Authorization", `Bearer ${session.accessToken}`);
   }
 
   const url = `${API_URL}/${path.replace(/^\/+/, "")}`;

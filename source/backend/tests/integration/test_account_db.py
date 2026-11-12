@@ -1,16 +1,12 @@
-"""The /account endpoints against the real database and real Supabase auth.
+"""The /account endpoints against the real database, logins included.
 
-These create throwaway logins. Each one is tracked, and the teardown deletes
-the account row and the Supabase user even if the test fails halfway.
+These create throwaway logins in auth.users. Each one is tracked, and the
+teardown deletes the account row and the login even if the test fails halfway.
 """
 
 import uuid
 
-import pytest
-from supabase_auth.errors import AuthApiError
-
-from app.dependencies import supabase
-from app.model import Account, AccountRole
+from app.model import Account, AccountRole, AuthUser
 from app.service import account_service
 from tests.integration.conftest import AUTH_HEADER
 
@@ -22,11 +18,23 @@ def new_identity() -> tuple[str, str]:
     return f"pytest-{token}", f"pytest-{token}@example.com"
 
 
-def login_exists(user_id: uuid.UUID) -> bool:
-    try:
-        return supabase.auth.admin.get_user_by_id(str(user_id)).user is not None
-    except AuthApiError:
-        return False
+def login_exists(db, user_id: uuid.UUID) -> bool:
+    return db.fetch(AuthUser, user_id) is not None
+
+
+def seed_login(db, email: str) -> uuid.UUID:
+    """A login with no account row behind it, which is what POST /account/
+    expects to find waiting for the user who claims it."""
+
+    async def go():
+        async with db.session() as session:
+            user_id = await account_service.create_auth_user(session, email, PASSWORD)
+            await session.commit()
+            return user_id
+
+    user_id = db.run(go)
+    db.track("account", user_id)
+    return user_id
 
 
 def create_user(client, db, kind: str = "member", **extra) -> uuid.UUID:
@@ -47,7 +55,7 @@ def test_admin_creates_trial_user_with_login_and_audit(client, db):
 
     row = db.fetch(Account, user_id)
     assert (row.role, row.quota, row.active) == (AccountRole.LAB_USER, 10, True)
-    assert login_exists(user_id)
+    assert login_exists(db, user_id)
 
     audit = {r.column_name: r.new_value for r in db.audit_rows("account", user_id)}
     assert audit == {"created": row.username, "quota": "10"}
@@ -62,10 +70,9 @@ def test_admin_creates_trial_user_with_login_and_audit(client, db):
 
 def test_user_claims_their_own_account_row(client, db):
     username, email = new_identity()
-    user_id = db.run(account_service.create_auth_user, email, PASSWORD, username)
-    db.track("account", user_id)
-    # POST /account/ copies the address off the Supabase user, so the fake
-    # token has to carry it.
+    user_id = seed_login(db, email)
+    # POST /account/ copies the address off the token, so the fake one has to
+    # carry it.
     client.login(user_id, email=email)
 
     first = client.post("/account/", json={"username": username}, headers=AUTH_HEADER)
@@ -133,7 +140,13 @@ def test_assign_role_rules(client, db):
     owner = client.put(f"/account/{user_id}/role", json={"role": "Lab Owner"}, headers=AUTH_HEADER)
     assert owner.status_code == 403
 
-    me = client.put(f"/account/{db.me_id}/role", json={"role": "Lab User"}, headers=AUTH_HEADER)
+    # Asked as the member who was just promoted, so the 409 is about it being
+    # their own row. Asking as the caller only works when the caller is not
+    # the Lab Owner, whose role is refused outright with a 403 - and on a
+    # fresh database the Lab Owner is the only admin there is.
+    client.login(user_id)
+    me = client.put(f"/account/{user_id}/role", json={"role": "Lab User"}, headers=AUTH_HEADER)
+    client.as_me()
     assert me.status_code == 409
 
 
@@ -163,7 +176,7 @@ def test_user_changes_own_password_and_email(client, db):
     )
     assert email.status_code == 200, email.text
     assert db.fetch(Account, user_id).email == new_email
-    assert supabase.auth.admin.get_user_by_id(str(user_id)).user.email == new_email
+    assert db.fetch(AuthUser, user_id).email == new_email
 
     columns = [r.column_name for r in db.audit_rows("account", user_id)]
     assert columns.count("password") == 1
@@ -178,7 +191,7 @@ def test_delete_account_removes_row_and_login(client, db):
     assert response.status_code == 200, response.text
     assert response.json()["Message"].startswith("Successfully deleted")
     assert db.fetch(Account, user_id) is None
-    assert not login_exists(user_id)
+    assert not login_exists(db, user_id)
 
     assert client.delete(f"/account/{db.me_id}", headers=AUTH_HEADER).status_code == 409
     assert client.delete(f"/account/{user_id}", headers=AUTH_HEADER).status_code == 404

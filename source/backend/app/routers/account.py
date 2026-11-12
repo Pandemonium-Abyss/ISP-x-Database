@@ -7,11 +7,10 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from supabase_auth.types import User as AuthUser
-
 from app.database import getSession
 from app.limits import USERNAME_MAX
 from app.model import Account, AccountRole
+from app.security import PASSWORD_MAX_BYTES, TokenUser
 from app.service import account_service
 
 accountRouter = APIRouter(prefix="/account", dependencies=[Depends(account_service.get_current_auth_user)])
@@ -29,9 +28,10 @@ class AssignRoleRequest(BaseModel):
     role: AccountRole
 
 
-# 72 bytes is the bcrypt ceiling Supabase hashes with - anything longer is silently truncated, so reject it instead.
+# 72 bytes is the bcrypt ceiling - anything past it is silently dropped
+# rather than hashed, so reject it instead of pretending it counted.
 MIN_PASSWORD = 8
-MAX_PASSWORD = 72
+MAX_PASSWORD = PASSWORD_MAX_BYTES
 
 
 class ChangeEmailRequest(BaseModel):
@@ -59,7 +59,7 @@ DEFAULT_TRIAL_QUOTA = 10
 
 class CreateUserRequest(BaseModel):
     username: str = Field(min_length=1, max_length=USERNAME_MAX)
-    # Supabase keys a login on the email address, and signing in is email plus
+    # A login is keyed on the email address, and signing in is email plus
     # password, so there is nothing to fall back on if this is missing.
     email: EmailStr
     password: str = Field(min_length=MIN_PASSWORD, max_length=MAX_PASSWORD)
@@ -80,7 +80,7 @@ async def retrieve_accounts(
 async def create_my_account(
     body: CreateAccountRequest,
     session: Annotated[AsyncSession, Depends(getSession)],
-    auth_user: Annotated[AuthUser, Depends(account_service.get_current_auth_user)],
+    auth_user: Annotated[TokenUser, Depends(account_service.get_current_auth_user)],
 ):
     """Claim the account row for the signed in user. A user who has a login
     but no account row picks their username here - the row does not exist
@@ -240,7 +240,7 @@ async def change_email(
     session: Annotated[AsyncSession, Depends(getSession)],
     me: Annotated[Account, Depends(account_service.get_current_account)],
 ):
-    """Point a login at a different address, moving the Supabase login and the account row that mirrors it together.
+    """Point a login at a different address, moving the auth.users row and the account row that mirrors it together.
 
     Your own, or one belonging to somebody you outrank. `password` is always the caller's own, never the target's - an admin resetting a member has no way of knowing theirs."""
     target = await account_service.resolve_login_target(session, me, account_id)
@@ -252,24 +252,21 @@ async def change_email(
         return {"Account": target, "Message": "Nothing to update"}
 
     await account_service.assert_email_available(session, email, target.id)
-    await account_service.verify_password(me.email, body.password)
+    await account_service.verify_password(session, me.email, body.password)
 
-    # Confirmed on the spot - nothing is emailed anywhere in this app, and without it they could not sign in again.
-    await account_service.update_auth_user(
-        target.id, {"email": email, "email_confirm": True}
-    )
+    # There is nothing to confirm by email: the address is live as soon as this
+    # commits, and they sign in with it straight away.
+    await account_service.set_auth_email(session, target.id, email)
 
     account_service.audit_account(session, target.id, "email", previous, email, me.id)
     target.email = email
 
     try:
+        # The login and its mirror move in one transaction, so a clash leaves
+        # both exactly as they were - nothing to put back by hand.
         await session.commit()
     except IntegrityError as exc:
         await session.rollback()
-        # The login already moved, so put it back rather than leave them signing in with an address we never stored.
-        await account_service.update_auth_user(
-            target.id, {"email": previous, "email_confirm": True}
-        )
         raise account_service.account_conflict(
             exc, "That email address is already taken"
         ) from exc
@@ -286,7 +283,7 @@ async def change_password(
 ):
     """Change a password - your own, or that of somebody you outrank.
 
-    `current_password` is always the caller's own, so an admin resetting a member confirms with theirs rather than the one they are replacing. Supabase does not revoke sessions on a password change, so nobody is bounced to the login page."""
+    `current_password` is always the caller's own, so an admin resetting a member confirms with theirs rather than the one they are replacing. Tokens already handed out stay valid, so nobody is bounced to the login page."""
     target = await account_service.resolve_login_target(session, me, account_id)
 
     # Only meaningful on your own row; against someone else it would be refusing to reuse a password they never had.
@@ -296,10 +293,8 @@ async def change_password(
             detail="That is already your password",
         )
 
-    await account_service.verify_password(me.email, body.current_password)
-    await account_service.update_auth_user(
-        target.id, {"password": body.new_password}
-    )
+    await account_service.verify_password(session, me.email, body.current_password)
+    await account_service.set_auth_password(session, target.id, body.new_password)
 
     # Both values stay None on purpose - that it changed is worth logging, the passwords are not ours to write down.
     account_service.audit_account(session, target.id, "password", None, None, me.id)
@@ -326,41 +321,37 @@ async def delete_account(
             detail="A Lab Owner cannot be deleted here",
         )
 
-    account_service.audit_account(
-        session, target.id, "deleted", target.username, None, me.id
-    )
-    await session.delete(target)
+    # Read off the row before it goes: the rollback below expires `target`,
+    # and reaching for a name on it then means a reload from inside an except,
+    # which is IO where the session has none left to give.
+    username = target.username
 
+    account_service.audit_account(
+        session, target.id, "deleted", username, None, me.id
+    )
     try:
+        # The login goes, not the account row: the row is only the mirror, and
+        # auth.users is what reserves the address. Deleting it cascades into
+        # account, so one statement takes both and the email is free again.
+        #
+        # The statement is inside the try as well as the commit: the cascade
+        # runs while it executes, so that is where the RESTRICT below comes
+        # back from rather than at the end of the transaction.
+        await account_service.delete_auth_user(session, target.id)
         await session.commit()
     except IntegrityError as exc:
-        # created_by on task, ticket and announcement is ON DELETE RESTRICT.
+        # created_by on task, ticket and announcement is ON DELETE RESTRICT,
+        # which the cascade runs into on its way through account.
         await session.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(
-                f"{target.username} still owns tasks, tickets or announcements. "
+                f"{username} still owns tasks, tickets or announcements. "
                 "Deactivate the account instead."
             ),
         ) from exc
 
-    # The row is only the mirror - auth.users is what reserves the address, and
-    # the cascade only runs the other way. Left behind, the login keeps the
-    # email forever and nothing here can see why it is refused next time.
-    #
-    # After the commit on purpose: deleting the login cascades into the account
-    # row, which would hit the RESTRICT above inside Supabase instead of as the
-    # 409 that tells the admin to deactivate.
-    if not await account_service.delete_auth_user(target.id):
-        return {
-            "Message": (
-                f"Deleted {target.username}, but their Supabase login is still "
-                f"there. Remove {target.email} from the Supabase dashboard, or "
-                "that address cannot be used again."
-            )
-        }
-
-    return {"Message": f"Successfully deleted {target.username}"}
+    return {"Message": f"Successfully deleted {username}"}
 
 @accountRouter.post("/admin", tags=["Admin"], status_code=status.HTTP_201_CREATED)
 async def admin_create_account(
@@ -374,7 +365,7 @@ async def admin_create_account(
     confirmed on the spot so the new member can sign in right away.
 
     Unlike POST /account/, which a user calls for themselves, this creates both
-    halves at once: the Supabase login and the account row behind it.
+    halves at once: the auth.users login and the account row behind it.
 
     `kind` picks which sort of member it is. A `member` is left with no quota,
     which the rest of the app reads as unlimited. A `trial` is capped at
@@ -400,7 +391,7 @@ async def admin_create_account(
 
     await account_service.assert_login_available(session, username, email)
 
-    user_id = await account_service.create_auth_user(email, body.password, username)
+    user_id = await account_service.create_auth_user(session, email, body.password)
 
     account = Account(
         id=user_id,
@@ -416,12 +407,11 @@ async def admin_create_account(
         account_service.audit_account(session, user_id, "quota", None, quota, me.id)
 
     try:
+        # Login, account row and audit trail in one transaction: a clash now
+        # leaves nothing behind for anyone to clean up.
         await session.commit()
     except IntegrityError as exc:
         await session.rollback()
-        # The login is live but has no account row, and the id only exists in
-        # this request, so nobody could find it again to clean it up.
-        await account_service.delete_auth_user(user_id)
         raise account_service.account_conflict(
             exc, "That username or email is already taken"
         ) from exc
@@ -441,16 +431,16 @@ async def assign_role(
 ):
     target = await account_service.get_account_or_404(session, account_id)
 
-    # Lab Owner is only ever set from the Supabase dashboard, both ways.
+    # Lab Owner is only ever set directly in the database, both ways.
     if body.role is AccountRole.LAB_OWNER:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Lab Owner can only be granted from the Supabase dashboard",
+            detail="Lab Owner can only be granted directly in the database",
         )
     if target.role is AccountRole.LAB_OWNER:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="A Lab Owner's role can only be changed from the Supabase dashboard",
+            detail="A Lab Owner's role can only be changed directly in the database",
         )
     # Self demotion would drop the last admin, so make someone else do it.
     if target.id == me.id:
