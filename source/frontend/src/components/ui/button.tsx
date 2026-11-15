@@ -33,15 +33,15 @@ const SIZE = {
 } as const;
 
 const ICON_SIZE: Record<ButtonSize, string> = {
-  sm: "h-4 w-auto",
+  sm: "size-4",
   base: "h-6 w-auto",
   md: "h-8 w-auto",
   lg: "h-8 w-auto",
-  circle: "h-4 w-auto",
+  circle: "size-4",
 };
 
 // shrink on click
-const PRESS = "transition-transform duration-50 enabled:active:scale-95";
+const PRESS = "transition-transform duration-50 enabled:active:scale-99";
 
 export type ButtonVariant = keyof typeof VARIANT;
 export type ButtonSize = keyof typeof SIZE;
@@ -77,7 +77,7 @@ export default function Button({
         <Icon
           src={icon}
           className={`block shrink-0 object-contain ${
-            size ? ICON_SIZE[size] : "h-4 w-auto"
+            size ? ICON_SIZE[size] : "size-4"
           } ${whiteIcon ? "brightness-0 invert" : "brightness-0"}`}
         />
       )}

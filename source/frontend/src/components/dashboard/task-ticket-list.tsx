@@ -120,10 +120,7 @@ export function TaskList({
   const hasMyTasks = myTasks.items.length > 0;
   const hasOtherTasks = otherTasks.items.length > 0;
 
-  const { listRef, hasOverflow } = useListOverflow([
-    myTasks.items,
-    otherTasks.items,
-  ]);
+  const { listRef, hasOverflow } = useListOverflow();
 
   const renderTask = (task: Task) => (
     <TableRow
@@ -220,9 +217,7 @@ export function TicketList({
   const errorMine = myRejectedTickets.error || myPendingTickets.error;
   const errorOthers = otherRejectedTickets.error || otherPendingTickets.error;
 
-  const { listRef, hasOverflow } = useListOverflow(
-    sections.map(({ group }) => group.items),
-  );
+  const { listRef, hasOverflow } = useListOverflow();
 
   const renderTicket = (ticket: Ticket) => {
     const overdue = isMissingItem(ticket, ["pending", "rejected"], now);
@@ -237,7 +232,7 @@ export function TicketList({
         lead={
           <Icon
             src={overdue ? "/alert.svg" : ticketStatusIcon[ticket.status]}
-            className="h-4 w-auto shrink-0"
+            className="size-4 shrink-0"
             alt={ticket.status}
           />
         }

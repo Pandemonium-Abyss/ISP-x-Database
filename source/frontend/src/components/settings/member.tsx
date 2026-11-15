@@ -13,7 +13,7 @@ import {
 } from "@/lib/account";
 import { maskEmail } from "@/lib/format";
 import { TextInput } from "@/components/ui/field";
-import CreateUser from "./create_user";
+import CreateUser from "./create-user";
 import MemberRow from "./member-row";
 import {
   ERROR,
@@ -148,6 +148,7 @@ export default function Member({
         </p>
         <div className="flex-1">
           <TextInput
+            name="search"
             look="outlined"
             value={query}
             onChange={setQuery}

@@ -121,7 +121,7 @@ export function RequestTableFrame<T extends { id: string; title: string }>({
   const searchRef = useRef<HTMLInputElement>(null);
 
   // header need more right space when scrollbar show
-  const { listRef, hasOverflow } = useListOverflow([rows.length, loading]);
+  const { listRef, hasOverflow } = useListOverflow();
 
   // Calculate displayed result range
   const resultStart =
@@ -148,14 +148,17 @@ export function RequestTableFrame<T extends { id: string; title: string }>({
         </h1>
 
         <div className="flex h-9 flex-1 items-center gap-2">
-          <span className="w-40 shrink-0 text-sm font-medium text-gray-600 whitespace-nowrap">
+          <span className="w-42 shrink-0 text-sm font-medium text-gray-600 whitespace-nowrap">
             {loading
-              ? "Loading results..."
-              : `Results ${resultStart}-${resultEnd} of ${totalResults}`}
+              ? "Results: Loading..."
+              : totalResults === 0
+                ? "Results: No results found"
+                : `Results: ${resultStart}-${resultEnd} of ${totalResults}`}
           </span>
 
           <div className="relative min-w-0 flex-1">
             <TextInput
+              name="search"
               ref={searchRef}
               look="panel"
               placeholder="Search"
@@ -179,7 +182,7 @@ export function RequestTableFrame<T extends { id: string; title: string }>({
                 className="absolute right-4 top-1/2 -translate-y-1/2"
                 aria-label="Clear search"
               >
-                <Icon src="/close.svg" className="h-3 w-3" />
+                <Icon src="/close.svg" className="size-3" />
               </button>
             )}
           </div>

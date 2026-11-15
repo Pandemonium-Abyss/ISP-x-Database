@@ -64,14 +64,16 @@ export default function DateInput({
   className?: string;
 }) {
   const [draft, setDraft] = useState(toDisplay(value));
+  const [prevValue, setPrevValue] = useState(value);
   const [touched, setTouched] = useState(false);
-  const [focused, setFocused] = useState(false);
   const pickerRef = useRef<HTMLInputElement>(null);
   const today = todayIso();
 
-  useEffect(() => {
+  // value changed from outside, so show it in the box
+  if (value !== prevValue) {
+    setPrevValue(value);
     setDraft(toDisplay(value));
-  }, [value]);
+  }
 
   const typedIso = toIso(draft);
   const invalid =
@@ -112,13 +114,12 @@ export default function DateInput({
     <div className={`relative ${label === undefined ? className : ""}`}>
       <div className="relative">
         <input
+          name="date"
           type="text"
           inputMode="numeric"
           placeholder="dd/mm/yyyy"
           value={draft}
           onChange={(event) => handleType(event.target.value)}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
           aria-invalid={invalid}
           className={`${INPUT_LOOK[look]} rounded-[20px] pr-10 ${
             invalid ? "ring-1 ring-inset ring-red-500" : ""
@@ -131,11 +132,12 @@ export default function DateInput({
           className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-800"
           aria-label="Open calendar"
         >
-          <Icon src="/calendar.svg" className="h-5 w-5" />
+          <Icon src="/calendar.svg" className="size-5" />
         </button>
 
         {/* Hidden native picker, only used for the calendar popup */}
         <input
+          name="date"
           ref={pickerRef}
           type="date"
           value={value}

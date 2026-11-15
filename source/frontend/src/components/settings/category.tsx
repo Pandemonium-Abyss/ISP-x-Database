@@ -123,6 +123,7 @@ export default function Categories({ isAdmin }: { isAdmin: boolean }) {
         <form onSubmit={handleCreate} className="flex items-start gap-3">
           <div className="flex-1">
             <TextInput
+              name="category_name"
               look="outlined"
               value={newName}
               onChange={setNewName}
@@ -157,6 +158,7 @@ export default function Categories({ isAdmin }: { isAdmin: boolean }) {
 
         <div className="flex-1">
           <TextInput
+            name="search"
             look="outlined"
             value={query}
             onChange={setQuery}
@@ -188,12 +190,14 @@ export default function Categories({ isAdmin }: { isAdmin: boolean }) {
               {isAdmin && editingId === category.id ? (
                 <div className="min-w-0 flex-1">
                   <TextInput
+                    name="category_name"
                     look="outlined"
                     autoFocus
                     maxLength={30}
                     inlineCounter={true}
                     value={editingName}
                     onChange={setEditingName}
+                    onBlur={() => handleRename(category.id)}
                     onKeyDown={(event) => {
                       if (event.key === "Enter") handleRename(category.id);
                       if (event.key === "Escape") setEditingId(null);

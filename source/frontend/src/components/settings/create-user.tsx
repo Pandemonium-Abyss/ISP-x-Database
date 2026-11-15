@@ -6,7 +6,7 @@ import { adminCreateAccount, type UserKind } from "@/lib/account";
 import Button from "@/components/ui/button";
 import { TextInput } from "@/components/ui/field";
 import Toggle from "@/components/ui/toggle";
-import { CARD, ERROR, LABEL, MUTED } from "./settings-style";
+import { CARD, ERROR, MUTED } from "./settings-style";
 
 const DEFAULT_TRIAL_QUOTA = 10;
 const MIN_PASSWORD = 8;
@@ -126,6 +126,7 @@ export default function CreateUser({
 
         <div className="grid grid-cols-2 gap-3">
           <TextInput
+            name="username"
             label="Username"
             look="outlined"
             value={username}
@@ -137,6 +138,7 @@ export default function CreateUser({
           />
 
           <TextInput
+            name="email"
             label="Email"
             look="outlined"
             type="email"
@@ -145,9 +147,11 @@ export default function CreateUser({
             disabled={busy}
             placeholder="user@example.com"
             maxLength={255}
+            autoComplete="email"
           />
 
           <TextInput
+            name="password"
             label="Password"
             look="outlined"
             type="password"
@@ -162,6 +166,7 @@ export default function CreateUser({
 
           {trial && (
             <TextInput
+              name="ticket_quota"
               label="Ticket quota"
               look="outlined"
               type="number"

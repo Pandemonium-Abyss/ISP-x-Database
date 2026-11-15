@@ -76,13 +76,14 @@ function ResetForm({
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-5 py-4">
       <p className={`${MUTED} text-sm!`}>
-        Change {member.username}'s login credentials directly. No notification
-        email will be sent, so share the updated credentials with the user
-        yourself. Leave a field blank to keep its current value.
+        Change {member.username}&apos;s login credentials directly. No
+        notification email will be sent, so share the updated credentials with
+        the user yourself. Leave a field blank to keep its current value.
       </p>
 
       <div className="grid grid-cols-3 gap-3">
         <TextInput
+          name="email"
           label="New email address"
           look="outlined"
           type="email"
@@ -103,6 +104,7 @@ function ResetForm({
           className="sr-only"
         />
         <TextInput
+          name="password"
           label="New password"
           look="outlined"
           type="password"
@@ -115,6 +117,7 @@ function ResetForm({
           placeholder={`At least ${MIN_PASSWORD} characters`}
         />
         <TextInput
+          name="password"
           label="Your password"
           look="outlined"
           type="password"
@@ -255,6 +258,7 @@ export default function MemberRow({
         {canEdit ? (
           quotaDraft !== null ? (
             <TextInput
+              name="ticket_quota"
               look="outlined-sm"
               autoFocus
               type="number"
