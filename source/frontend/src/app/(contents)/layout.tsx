@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import { Noto_Sans_Thai, Anuphan } from "next/font/google";
-import "../globals.css";
+import { notoSansThai, anuphan } from "@/app/font";
+import "@/app/globals.css";
 import Sidebar from "@/components/sidebar";
 import Topbar from "@/components/topbar";
 import SettingsProvider from "@/components/setting-provider";
@@ -9,16 +9,6 @@ import CacheInitializer from "@/components/cache-init";
 type LayoutProps = {
   children: React.ReactNode;
 };
-
-const notoSansThai = Noto_Sans_Thai({
-  variable: "--font-noto-sans-thai",
-  subsets: ["thai", "latin"],
-});
-
-const anuphan = Anuphan({
-  variable: "--font-anuphan",
-  subsets: ["thai", "latin"],
-});
 
 export const metadata: Metadata = {
   title: "Labrador",
@@ -42,7 +32,7 @@ export default function RootLayout({ children }: LayoutProps) {
           <div className="flex flex-1 min-w-0 h-screen flex-col">
             <Topbar />
 
-            <main className="flex-1 min-h-0 overflow-y-auto scrollbar-thin">
+            <main className="flex-1 min-h-0 overflow-y-auto scrollbar-thin scrollbar-gutter-stable">
               {children}
             </main>
           </div>

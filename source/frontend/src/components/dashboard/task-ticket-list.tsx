@@ -28,25 +28,24 @@ const GRID = "grid-cols-[2fr_1.25fr_1.25fr_minmax(120px,1fr)]";
 
 // same props for every section
 const sectionProps = (group: GroupState) => ({
-  count: group.count,
-  busy: group.refreshing,
-  onLoadMore: group.overflow ? group.loadMore : undefined,
+  // "current / total"
+  count: `${group.items.length} / ${group.all.length}`,
+  onLoadMore:
+    group.all.length > group.items.length ? group.loadMore : undefined,
 });
 
 // label + rows of one section
-// label = title + count (count already formatted into string and "+" sign)
+// label = title + count (count already formatted into string)
 // label sticky, so it stay under column header while its section scroll
-// Load More show only when onLoadMore is given (list overflow)
+// Load More show only when onLoadMore is given (list has hidden items)
 function ListSection({
   title,
   count,
-  busy = false,
   onLoadMore,
   children,
 }: {
   title: string;
   count: string;
-  busy?: boolean;
   onLoadMore?: () => void;
   children: ReactNode;
 }) {
@@ -54,10 +53,10 @@ function ListSection({
     <div className="flex shrink-0 flex-col gap-2">
       <div className="sticky top-0 z-10 flex shrink-0 items-end gap-2 bg-(--panel-bg) pl-1">
         <h1 className="text-base font-semibold text-black">{title}</h1>
-        <span className="text-xl font-bold text-green-800">{count}</span>
+        <span className="text-lg font-bold text-green-800">{count}</span>
       </div>
       {children}
-      {onLoadMore && <LoadMoreButton disabled={busy} onClick={onLoadMore} />}
+      {onLoadMore && <LoadMoreButton disabled={false} onClick={onLoadMore} />}
       <div className="h-2 shrink-0" />
     </div>
   );
@@ -92,7 +91,7 @@ function ListPanel({
       ) : (
         <div
           ref={listRef}
-          className="flex min-h-0 flex-col gap-2 overflow-y-auto scrollbar-thin"
+          className="flex min-h-0 max-h-120 flex-col gap-2 overflow-y-auto scrollbar-thin"
         >
           {children}
         </div>
@@ -121,10 +120,7 @@ export function TaskList({
   const hasMyTasks = myTasks.items.length > 0;
   const hasOtherTasks = otherTasks.items.length > 0;
 
-  const { listRef, hasOverflow } = useListOverflow([
-    myTasks.items,
-    otherTasks.items,
-  ]);
+  const { listRef, hasOverflow } = useListOverflow();
 
   const renderTask = (task: Task) => (
     <TableRow
@@ -221,9 +217,7 @@ export function TicketList({
   const errorMine = myRejectedTickets.error || myPendingTickets.error;
   const errorOthers = otherRejectedTickets.error || otherPendingTickets.error;
 
-  const { listRef, hasOverflow } = useListOverflow(
-    sections.map(({ group }) => group.items),
-  );
+  const { listRef, hasOverflow } = useListOverflow();
 
   const renderTicket = (ticket: Ticket) => {
     const overdue = isMissingItem(ticket, ["pending", "rejected"], now);
@@ -238,7 +232,7 @@ export function TicketList({
         lead={
           <Icon
             src={overdue ? "/alert.svg" : ticketStatusIcon[ticket.status]}
-            className="h-4 w-auto shrink-0"
+            className="size-4 shrink-0"
             alt={ticket.status}
           />
         }
@@ -294,7 +288,7 @@ export function TicketList({
 // layout only, the two lists are passed as children
 export default function TaskTicketList({ children }: { children: ReactNode }) {
   return (
-    <div className="relative flex min-h-[80vh] min-w-0 flex-1 shrink-0 min-[1000px]:min-h-0">
+    <div className="relative flex min-h-[80vh] min-w-0 flex-1 shrink-0 min-[1100px]:min-h-0">
       <div className="absolute inset-0 grid grid-rows-[minmax(0,auto)_minmax(0,auto)] content-start gap-2 rounded-t-[30px] rounded-b-none bg-(--panel-bg) p-3">
         {children}
       </div>

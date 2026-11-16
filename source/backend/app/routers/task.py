@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import case, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+
 from app.database import getSession
 from app.datetime_utils import to_due_date, to_utc
 from app.limits import DESCRIPTION_MAX, NAME_MAX
@@ -54,8 +55,8 @@ async def retrieve_tasks(
     due_after: datetime | None = None,
     due_before: datetime | None = None,
     get_count: bool = False,
-    limit: int = Query(default=20, ge=0),
     offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=0)
 ):
     from sqlalchemy import cast, String, or_, func
 

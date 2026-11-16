@@ -5,6 +5,7 @@ import { loadLookups, type Lookups } from "@/lib/lookup";
 import { PAGE_SIZE, pageParams, splitPage } from "@/lib/pagination";
 
 export type PagedList<Row> = {
+  totalResults: number;
   rows: Row[];
   hasNext: boolean;
   totalPages: number;
@@ -15,6 +16,7 @@ export type PagedList<Row> = {
 };
 
 type State<Row> = {
+  totalResults: number;
   rows: Row[];
   hasNext: boolean;
   totalPages: number;
@@ -28,6 +30,7 @@ const INITIAL: State<never> = {
   rows: [],
   hasNext: false,
   totalPages: 0,
+  totalResults: 0,
   loading: true,
   error: null,
   loadedPage: 0,
@@ -52,6 +55,18 @@ export function usePagedList<Raw, Row>(
   const [reloadKey, setReloadKey] = useState(0);
   const reload = useCallback(() => setReloadKey((key) => key + 1), []);
 
+  // any trigger changed: refetch coming, so show loading right now
+  const trigger = [enabled, page, reloadKey, fallbackError, ...deps];
+  const [prevTrigger, setPrevTrigger] = useState(trigger);
+
+  if (
+    trigger.length !== prevTrigger.length ||
+    trigger.some((value, index) => !Object.is(value, prevTrigger[index]))
+  ) {
+    setPrevTrigger(trigger);
+    if (enabled) setState((prev) => ({ ...prev, loading: true }));
+  }
+
   // latest closures, so the effect only watches the values that matter
   const fetchRef = useRef(fetchPage);
   const mapRef = useRef(mapRow);
@@ -65,8 +80,6 @@ export function usePagedList<Raw, Row>(
     if (!enabled) return;
     let cancelled = false;
 
-    setState((prev) => ({ ...prev, loading: true }));
-
     Promise.all([fetchRef.current(pageParams(page)), loadLookups()])
       .then(([body, lookups]) => {
         if (cancelled) return;
@@ -77,6 +90,7 @@ export function usePagedList<Raw, Row>(
           rows: rows.map((raw) => mapRef.current(raw, lookups)),
           hasNext,
           totalPages: Math.ceil(body.count / PAGE_SIZE),
+          totalResults: body.count,
           loading: false,
           error: null,
           loadedPage: page,
@@ -103,6 +117,7 @@ export function usePagedList<Raw, Row>(
     rows: state.rows,
     hasNext: state.hasNext,
     totalPages: state.totalPages,
+    totalResults: state.totalResults,
     loading: state.loading || state.loadedPage !== page,
     error: state.error,
     reload,

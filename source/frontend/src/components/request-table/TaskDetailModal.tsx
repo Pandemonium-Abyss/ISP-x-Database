@@ -38,6 +38,7 @@ export default function TaskDetailModal({
   const [dueDate, setDueDate] = useState(task.dueDateValue);
   const [assignedIds, setAssignedIds] = useState<string[]>(task.assigneeIds);
   const { saving, error, setError, run } = useFormSubmit();
+  const [action, setAction] = useState<"update" | "status" | null>(null);
 
   const isAdmin = userRole === "Lab Admin";
 
@@ -59,6 +60,7 @@ export default function TaskDetailModal({
     status: "completed" | "in_progress",
     close: () => void,
   ) {
+    setAction("status");
     const ok = await run(
       () =>
         putTask(task.id, {
@@ -87,6 +89,7 @@ export default function TaskDetailModal({
       return;
     }
 
+    setAction("update");
     const ok = await run(
       () =>
         putTask(task.id, {
@@ -111,6 +114,7 @@ export default function TaskDetailModal({
   return (
     <FormModal
       title="Task detail"
+      id={task.id}
       onClose={onClose}
       error={error}
       footer={(close) => (
@@ -121,7 +125,7 @@ export default function TaskDetailModal({
               onClick={() => handleUpdate(close)}
               disabled={saving || !hasChanges}
             >
-              {saving ? "Saving…" : "Save Changes"}
+              {saving && action === "update" ? "Saving…" : "Save"}
             </FormButton>
           )}
 
@@ -133,7 +137,13 @@ export default function TaskDetailModal({
               }
               disabled={saving}
             >
-              {saving ? "Saving…" : completed ? "Unsubmit" : "Submit"}
+              {saving && action === "status"
+                ? completed
+                  ? "Unsubmitting…"
+                  : "Submitting…"
+                : completed
+                  ? "Unsubmit"
+                  : "Submit"}
             </FormButton>
           )}
         </>
@@ -141,10 +151,12 @@ export default function TaskDetailModal({
     >
       <FormColumn>
         <TextInput
+          name="title"
           label="Title"
           value={title}
           onChange={setTitle}
           placeholder="Enter a title"
+          maxLength={255}
           readOnly={!isAdmin}
         />
 
@@ -161,6 +173,7 @@ export default function TaskDetailModal({
           />
 
           <TextInput
+            name="status"
             label="Status"
             className="min-w-0 flex-1"
             value={task.status}
@@ -170,6 +183,7 @@ export default function TaskDetailModal({
 
         <div className="flex gap-4">
           <TextInput
+            name="created_by"
             label="Created By"
             className="min-w-0 flex-1"
             value={task.createdBy}
@@ -187,16 +201,19 @@ export default function TaskDetailModal({
         </div>
 
         <TextArea
+          name="description"
           label="Description"
           value={description}
           onChange={setDescription}
           placeholder="Add more details"
+          maxLength={1000}
           readOnly={!isAdmin}
           grow
         />
 
         {!isAdmin && (
           <TextInput
+            name="assigned"
             label="Assigned"
             value={task.assignedTo || "Unassigned"}
             readOnly

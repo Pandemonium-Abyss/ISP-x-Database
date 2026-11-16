@@ -24,11 +24,13 @@ import {
 export default function Categories({ isAdmin }: { isAdmin: boolean }) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [newName, setNewName] = useState("");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingName, setEditingName] = useState("");
+  const [savingId, setSavingId] = useState<number | null>(null);
 
   // Caching. The request GET /Categories
   const refresh = useCallback(
@@ -72,30 +74,46 @@ export default function Categories({ isAdmin }: { isAdmin: boolean }) {
     if (!name) return;
 
     setNewName("");
-    await run(() => createCategory(name), `Could not create "${name}".`);
+    await run(
+      () => createCategory(name),
+      `Could not create the category "${name}".`,
+    );
   }
 
   async function handleRename(id: number) {
     const name = editingName.trim();
-    setEditingId(null);
-    if (!isAdmin || !name) return;
+    if (!isAdmin || !name || savingId !== null) return;
 
-    await run(
-      () => updateCategory(id, name),
-      `Could not rename category ${id}.`,
-    );
+    if (name === categories.find((c) => c.id === id)?.name) {
+      setEditingId(null);
+      return;
+    }
+
+    setSavingId(id);
+
+    try {
+      await run(
+        () => updateCategory(id, name),
+        "Could not rename the category.",
+      );
+      setEditingId(null);
+    } finally {
+      setSavingId(null);
+    }
   }
 
-  const visible = categories.filter((category) =>
-    category.name.toLowerCase().includes(query.trim().toLowerCase()),
-  );
+  const visible = categories
+    .filter((category) =>
+      category.name.toLowerCase().includes(query.trim().toLowerCase()),
+    )
+    .sort((a, b) => a.id - b.id);
 
   return (
     <section className="flex flex-col gap-5">
-      <h1 className={TITLE}>Category</h1>
+      <h1 className={TITLE}>Categories</h1>
 
       <div className="flex flex-col gap-1.5">
-        <p className="font-semibold">Categories For Tickets And Tasks</p>
+        <p className="font-semibold">Categories for Tickets and Tasks</p>
         <p className={MUTED}>
           Categories group the tickets and tasks your lab handles. Renaming one
           updates it everywhere it is already in use.
@@ -103,75 +121,108 @@ export default function Categories({ isAdmin }: { isAdmin: boolean }) {
       </div>
 
       {isAdmin ? (
-        <form onSubmit={handleCreate} className="flex items-center gap-3">
-          <TextInput
-            look="outlined"
-            value={newName}
-            onChange={setNewName}
-            placeholder="New category name"
-            className="flex-1"
-          />
+        <form onSubmit={handleCreate} className="flex items-start gap-3">
+          <div className="flex-1">
+            <TextInput
+              name="category_name"
+              look="outlined"
+              value={newName}
+              onChange={setNewName}
+              placeholder="New category name"
+              maxLength={30}
+              inlineCounter={true}
+            />
+          </div>
           <Button
             variant="green"
             size="md"
             type="submit"
             disabled={!newName.trim()}
-            className="min-w-25 px-4 font-bold"
+            className="h-10 min-w-25 px-4 font-bold"
           >
-            Add
+            Add Category
           </Button>
         </form>
       ) : (
         <p className={MUTED}>
-          Only a Lab Owner or Lab Admin can add, rename or delete categories.
+          Only Lab Owners and Lab Admins can add, rename, or delete categories.
         </p>
       )}
 
+      {error && <p className={ERROR}>{error}</p>}
+
       <div className="flex items-center justify-between gap-3">
-        <p className="text-lg font-semibold w-40">All Categories</p>
-        <TextInput
-          look="outlined"
-          value={query}
-          onChange={setQuery}
-          placeholder="Search by name"
-          className="w-full"
+        <p className="text-lg font-semibold w-fit">
+          All Categories
+          <span className={MUTED}> ({categories.length})</span>
+        </p>
+
+        <div className="flex-1">
+          <TextInput
+            name="search"
+            look="outlined"
+            value={query}
+            onChange={setQuery}
+            placeholder="Search categories"
+            className="w-full"
+          />
+        </div>
+
+        <Button
+          variant={loading || refreshing ? "busy" : "outline-white"}
+          icon="/reset.svg"
+          disabled={loading || refreshing}
+          onClick={async () => {
+            setRefreshing(true);
+            try {
+              await getCategories.clear();
+              await refresh();
+            } finally {
+              setRefreshing(false);
+            }
+          }}
+          title="Refresh Categories"
+          busyspin
         />
       </div>
 
-      {error && <p className={ERROR}>{error}</p>}
-
       <div className={LIST_PANEL}>
         <div className={HEAD}>
-          <span className="w-10">ID</span>
+          <span className="w-15 shrink-0">ID</span>
           <span className="flex-1">Name</span>
         </div>
 
-        {loading ? (
-          <p className={MESSAGE}>Loading...</p>
+        {loading || refreshing ? (
+          <p className={MESSAGE}>Loading categories...</p>
         ) : visible.length === 0 ? (
           <p className={MESSAGE}>
             {categories.length === 0
-              ? "No categories yet."
-              : "No categories match that search."}
+              ? "No categories have been created yet."
+              : "No categories match your search."}
           </p>
         ) : (
           visible.map((category) => (
             <div key={category.id} className={ROW}>
-              <span className="w-15 text-gray-500">{category.id}</span>
+              <span className="w-15 shrink-0 text-gray-500">{category.id}</span>
 
               {isAdmin && editingId === category.id ? (
-                <TextInput
-                  look="outlined"
-                  autoFocus
-                  value={editingName}
-                  onChange={setEditingName}
-                  onBlur={() => handleRename(category.id)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") handleRename(category.id);
-                    if (event.key === "Escape") setEditingId(null);
-                  }}
-                  className="flex-1"
-                />
+                <div className="min-w-0 flex-1">
+                  <TextInput
+                    name="category_name"
+                    look="outlined"
+                    autoFocus
+                    maxLength={30}
+                    inlineCounter={true}
+                    value={editingName}
+                    onChange={setEditingName}
+                    onBlur={() => handleRename(category.id)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") handleRename(category.id);
+                      if (event.key === "Escape") setEditingId(null);
+                    }}
+                    className="h-8!"
+                  />
+                </div>
               ) : (
                 <span className="flex-1">{category.name}</span>
               )}
@@ -179,15 +230,29 @@ export default function Categories({ isAdmin }: { isAdmin: boolean }) {
               {isAdmin && (
                 <>
                   <Button
-                    variant="outline"
+                    variant={editingId === category.id ? "green" : "outline"}
                     size="base"
+                    disabled={
+                      savingId !== null ||
+                      (editingId === category.id &&
+                        (editingName.trim() === category.name ||
+                          !editingName.trim()))
+                    }
                     onClick={() => {
-                      setEditingId(category.id);
-                      setEditingName(category.name);
+                      if (editingId === category.id) {
+                        handleRename(category.id);
+                      } else {
+                        setEditingId(category.id);
+                        setEditingName(category.name);
+                      }
                     }}
                     className="w-25 font-semibold"
                   >
-                    Edit
+                    {savingId === category.id
+                      ? "Saving..."
+                      : editingId === category.id
+                        ? "Save"
+                        : "Edit"}
                   </Button>
                   <Button
                     variant="red"
@@ -195,7 +260,7 @@ export default function Categories({ isAdmin }: { isAdmin: boolean }) {
                     onClick={() =>
                       run(
                         () => deleteCategory(category.id),
-                        `Could not delete "${category.name}".`,
+                        `Could not delete the category "${category.name}".`,
                       )
                     }
                     className="w-25 font-bold"

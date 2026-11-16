@@ -32,7 +32,7 @@ export default function MemberPanel({
   }
 
   return (
-    <div className="flex w-9/40 min-h-0 shrink-0 flex-col self-stretch rounded-[20px] bg-(--panel-bg) p-3">
+    <div className="flex min-w-50 w-9/40 min-h-0 shrink-0 flex-col self-stretch rounded-[20px] bg-(--panel-bg) p-3">
       <div
         className={`flex shrink-0 items-center justify-between ${hint ? "mb-2" : "mb-3"}`}
       >
@@ -70,7 +70,7 @@ export default function MemberPanel({
                 type="checkbox"
                 checked={selectedIds.includes(member.id)}
                 onChange={() => toggle(member.id)}
-                className="h-4 w-4 shrink-0 accent-(--primary-color-2)"
+                className="size-4 shrink-0 accent-(--primary-color-2)"
               />
               <Avatar name={member.name} className="h-6 w-auto shrink-0" />
               <div className="min-w-0">

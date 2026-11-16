@@ -61,16 +61,18 @@ export default function CreateTicketModal({
           onClick={() => handleCreate(close)}
           disabled={saving}
         >
-          {saving ? "Submitting…" : "Submit"}
+          {saving ? "Creating…" : "Create"}
         </FormButton>
       )}
     >
       <FormColumn>
         <TextInput
+          name="title"
           label="Title"
           value={title}
           onChange={setTitle}
           placeholder="Enter a title"
+          maxLength={255}
         />
         <div className="grid grid-cols-2 gap-4">
           <Select
@@ -84,10 +86,12 @@ export default function CreateTicketModal({
           <DateInput label="Due Date" value={dueDate} onChange={setDueDate} />
         </div>
         <TextArea
+          name="description"
           label="Description"
           value={description}
           onChange={setDescription}
           placeholder="Add more details"
+          maxLength={1000}
           grow
         />
       </FormColumn>

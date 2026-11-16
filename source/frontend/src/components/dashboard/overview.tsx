@@ -9,7 +9,6 @@ import {
   dueBucketColor,
   dueBucketMeta,
   getDueBucketLimits,
-  withMore,
   type BucketCounts,
   type DashboardItem,
   type DashboardView,
@@ -67,13 +66,11 @@ export function ScopeToggle({
 
 export function Summary({
   items,
-  overflowItems,
   counts,
   loading,
   view,
 }: {
   items: DashboardItem[];
-  overflowItems: DashboardItem[];
   counts: BucketCounts;
   loading: boolean;
   view: DashboardView;
@@ -92,9 +89,6 @@ export function Summary({
 
   const dueToday = items.filter(isDueToday).length;
 
-  // due today can hide behind a past due one
-  const moreDueToday = overflowItems.some(isDueToday);
-
   const isTicket = view === "ticket";
 
   // hide empty range, but show all of them while loading
@@ -112,25 +106,16 @@ export function Summary({
     ? [
         {
           label: "Rejected",
-          value: withMore(
-            items.filter((item) => item.status === "rejected").length,
-            overflowItems.some((item) => item.status === "rejected"),
-          ),
+          value: items.filter((item) => item.status === "rejected").length,
         },
         {
           label: "Pending",
-          value: withMore(
-            items.filter((item) => item.status === "pending").length,
-            overflowItems.some((item) => item.status === "pending"),
-          ),
+          value: items.filter((item) => item.status === "pending").length,
         },
       ]
     : [
-        { label: "Due Today", value: withMore(dueToday, moreDueToday) },
-        {
-          label: "Active Task",
-          value: withMore(items.length, overflowItems.length > 0),
-        },
+        { label: "Due Today", value: dueToday },
+        { label: "Active Task", value: items.length },
       ];
 
   return (
@@ -185,10 +170,10 @@ export function Summary({
               <div key={bucket.key} className="flex items-center">
                 <div className="flex w-7.5 items-center">
                   <div
-                    className={`h-5 w-5 rounded-full ${dueBucketColor[bucket.key]}`}
+                    className={`size-5 rounded-full ${dueBucketColor[bucket.key]}`}
                   />
                 </div>
-                <div className="flex w-6 items-center text-base">
+                <div className="flex w-6 items-center text-base tabular-nums">
                   <p>{loading ? "-" : bucket.count}</p>
                 </div>
                 <div className="flex flex-1 items-center text-base">
@@ -230,7 +215,7 @@ export default function Overview({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
       <div className="flex h-8 items-center gap-2 rounded-[20px] bg-(--primary-color-2) px-2">
-        <Icon src="/header_donut_dark_green.svg" />
+        <Icon src="/header_donut_dark_green.svg" className="size-4" />
         <h1 className="text-base font-bold text-white">
           {isTicket ? "Ticket Overview" : "Task Overview"}
         </h1>
@@ -269,7 +254,7 @@ export default function Overview({
                       {visibleBuckets.map((b) => (
                         <div key={b.key} className="flex items-center gap-1">
                           <span
-                            className={`h-4 w-4 shrink-0 rounded-full ${dueBucketColor[b.key]}`}
+                            className={`size-4 shrink-0 rounded-full ${dueBucketColor[b.key]}`}
                           />
                           <span className="text-base font-medium text-black">
                             {counts[b.key]}

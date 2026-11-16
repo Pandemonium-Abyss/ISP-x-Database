@@ -68,6 +68,7 @@ export default function RequestTable() {
     tickets,
     ticketsHasNext,
     ticketsTotalPages,
+    ticketsTotalResults,
     ticketsLoading,
     ticketsError,
     reloadTickets,
@@ -83,6 +84,7 @@ export default function RequestTable() {
     tasks,
     tasksHasNext,
     tasksTotalPages,
+    tasksTotalResults,
     tasksLoading,
     tasksError,
     reloadTasks,
@@ -109,11 +111,12 @@ export default function RequestTable() {
       (type !== "task" && type !== "ticket") ||
       !Number.isInteger(id) ||
       id <= 0
-    )
+    ) {
       return;
+    }
 
     let cancelled = false;
-    setTab(type);
+    const tabType: Tab = type;
 
     async function openFromLink() {
       try {
@@ -127,6 +130,8 @@ export default function RequestTable() {
       } catch {
         if (!cancelled) setLinkError(true);
       }
+
+      if (!cancelled) setTab(tabType);
     }
 
     openFromLink();
@@ -160,6 +165,7 @@ export default function RequestTable() {
             onPageChange={ticketView.setPage}
             hasNext={ticketsHasNext}
             totalPages={ticketsTotalPages}
+            totalResults={ticketsTotalResults}
             onSelect={setSelectedTicket}
             onCreate={() => setIsCreatingTicket(true)}
             canCreate={account !== null && account.role !== "Lab Owner"}
@@ -176,6 +182,7 @@ export default function RequestTable() {
             onPageChange={taskView.setPage}
             hasNext={tasksHasNext}
             totalPages={tasksTotalPages}
+            totalResults={tasksTotalResults}
             onSelect={setSelectedTask}
             onCreate={() => setIsCreatingTask(true)}
           />

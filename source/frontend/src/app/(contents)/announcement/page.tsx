@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useParams } from "next/navigation";
 import AnnouncementDetail from "@/components/announcement/AnnouncementDetail";
 import AnnouncementList from "@/components/announcement/AnnouncementList";
 import CreateAnnouncementModal from "@/components/announcement/CreateAnnouncementModal";
@@ -25,6 +26,27 @@ type List = {
   hasMore: boolean;
 };
 
+// Fetch announcements without updating React state
+async function fetchList(limit: number, linkId: number | null): Promise<List> {
+  let rows = await getAnnouncements({ limit: limit + 1 });
+
+  // opened by link: load more til found
+  while (
+    linkId !== null &&
+    rows.length > limit &&
+    !rows.slice(0, limit).some((item) => item.id === linkId)
+  ) {
+    limit += PAGE_SIZE;
+    rows = await getAnnouncements({ limit: limit + 1 });
+  }
+
+  return {
+    items: rows.slice(0, limit),
+    limit,
+    hasMore: rows.length > limit,
+  };
+}
+
 export default function AnnouncementPage() {
   const { isAdmin } = useCurrentAccount();
   const { members } = useMembers();
@@ -38,25 +60,28 @@ export default function AnnouncementPage() {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [selectedId, setSelectedId] = useState<number | null>(null);
+  // opened by /announcement/id link, else null
+  const idParam = Number(useParams<{ id?: string }>().id);
+  const [selectedId, setSelectedId] = useState<number | null>(
+    Number.isInteger(idParam) ? idParam : null,
+  );
+
+  // id from link, clear when user pick other. load keep going til found
+  const linkIdRef = useRef<number | null>(selectedId);
+
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  // One fetch for the first load, a reload and Load More alike. One extra row
-  // is asked for, to see whether there is more. The limit is only committed
-  // once the request lands, so a failed Load More keeps the list it had.
+  // One fetch for the first load, a reload and Load More alike.
+  // One extra row is asked for, to see whether there is more.
   const load = useCallback(async (limit: number) => {
     setFetching(true);
 
     try {
-      const rows = await getAnnouncements({ limit: limit + 1 });
+      const result = await fetchList(limit, linkIdRef.current);
 
-      setList({
-        items: rows.slice(0, limit),
-        limit,
-        hasMore: rows.length > limit,
-      });
+      setList(result);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load");
@@ -66,15 +91,46 @@ export default function AnnouncementPage() {
     }
   }, []);
 
+  // Initial load: update state only after the request completes.
   useEffect(() => {
-    void load(PAGE_SIZE);
-  }, [load]);
+    let cancelled = false;
+
+    async function initialLoad() {
+      try {
+        const result = await fetchList(PAGE_SIZE, linkIdRef.current);
+
+        if (cancelled) return;
+
+        setList(result);
+        setError(null);
+      } catch (err) {
+        if (cancelled) return;
+
+        setError(err instanceof Error ? err.message : "Failed to load");
+      } finally {
+        if (!cancelled) {
+          setFetching(false);
+          setLoaded(true);
+        }
+      }
+    }
+
+    void initialLoad();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // after a write, refetch the same stretch of the list
-  const reload = useCallback(() => load(list.limit), [load, list.limit]);
+  const reload = useCallback(() => {
+    return load(list.limit);
+  }, [load, list.limit]);
 
   const loadMore = useCallback(() => {
-    if (!fetching) void load(list.limit + PAGE_SIZE);
+    if (fetching) return;
+
+    void load(list.limit + PAGE_SIZE);
   }, [fetching, list.limit, load]);
 
   // nothing on screen yet, so the error takes over the whole panel
@@ -83,6 +139,13 @@ export default function AnnouncementPage() {
   // first one selected by default
   const selected =
     list.items.find((item) => item.id === selectedId) ?? list.items[0] ?? null;
+
+  // clear [id] from url when other one picked
+  const handleSelect = (id: number) => {
+    linkIdRef.current = null;
+    setSelectedId(id);
+    window.history.replaceState(null, "", "/announcement");
+  };
 
   const authorName = (id: string) =>
     members.find((member) => member.id === id)?.name ?? "Unknown";
@@ -101,6 +164,8 @@ export default function AnnouncementPage() {
   const handleDelete = async () => {
     if (!selected) return;
     await deleteAnnouncement(selected.id);
+    linkIdRef.current = null;
+    setSelectedId(null);
     reload();
   };
 
@@ -113,12 +178,11 @@ export default function AnnouncementPage() {
           <Button
             variant="green"
             size="circle"
-            onClick={() => setCreating(true)}
+            icon="/plus.svg"
+            iconColor="white"
             aria-label="Create new announcement"
-            className="font-semibold"
-          >
-            +
-          </Button>
+            onClick={() => setCreating(true)}
+          />
         </div>
       )}
 
@@ -129,7 +193,7 @@ export default function AnnouncementPage() {
             announcements={list.items}
             selectedId={selected?.id ?? null}
             getAuthorName={authorName}
-            onSelect={setSelectedId}
+            onSelect={handleSelect}
             hasMore={list.hasMore}
             loadingMore={fetching}
             loadMoreError={error !== null && list.items.length > 0}

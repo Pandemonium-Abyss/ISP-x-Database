@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState, useSyncExternalStore } from "react";
 import Icon from "@/components/ui/icon";
 import { useSettings } from "./setting-provider";
 import { clearAllApiCache } from "@/lib/cache/cache";
@@ -12,6 +12,14 @@ const bottomNavigation = ["announcement"];
 
 const expandDelay = 100;
 
+// hover device only
+const hoverQuery = "(hover: hover) and (pointer: fine)";
+const subscribeHover = (onChange: () => void) => {
+  const media = window.matchMedia(hoverQuery);
+  media.addEventListener("change", onChange);
+  return () => media.removeEventListener("change", onChange);
+};
+
 function getItemClass(active = false) {
   const color = active
     ? "bg-(--primary-color-1) hover:bg-(--primary-color-1-hover)"
@@ -20,9 +28,7 @@ function getItemClass(active = false) {
 }
 
 function NavigationIcon({ name }: { name: string }) {
-  return (
-    <Icon src={`/${name}.svg`} className="h-auto w-5 shrink-0" alt={name} />
-  );
+  return <Icon src={`/${name}.svg`} className="size-5 shrink-0" alt={name} />;
 }
 
 function NavigationLabel({ children }: { children: string }) {
@@ -75,9 +81,14 @@ export default function Sidebar() {
 
   const expandTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    if (expanded) setHasExpanded(true);
-  }, [expanded]);
+  const isAutoExpandEnabled = useSyncExternalStore(
+    subscribeHover,
+    () => window.matchMedia(hoverQuery).matches,
+    () => false,
+  );
+
+  // once opened, collapse animation can run
+  if (expanded && !hasExpanded) setHasExpanded(true);
 
   // Close and unpin
   const handleNavigationClick = () => {
@@ -118,7 +129,13 @@ export default function Sidebar() {
             "[data-sidebar-toggle]",
           );
 
-          if (!expanded && !pinned && !onToggle && !expandTimeout.current) {
+          if (
+            isAutoExpandEnabled &&
+            !expanded &&
+            !pinned &&
+            !onToggle &&
+            !expandTimeout.current
+          ) {
             expandTimeout.current = setTimeout(() => {
               setExpanded(true);
               expandTimeout.current = null;

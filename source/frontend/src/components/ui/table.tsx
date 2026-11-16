@@ -25,7 +25,7 @@ export function TableHeader({
         hasOverflow ? "pr-6" : "pr-4"
       }`}
     >
-      <Icon src="/header_donut_dark_green.svg" />
+      <Icon src="/header_donut_dark_green.svg" className="size-4" />
       <div className={grid(gridClassName)}>
         {titles.map((title) => (
           <h1 key={title} className="truncate text-base font-bold text-white">
@@ -97,9 +97,11 @@ export function ListMessage({ children }: { children: ReactNode }) {
 
 // separator line + button. disabled while the list is refetching
 export function LoadMoreButton({
+  label = "Load more",
   disabled,
   onClick,
 }: {
+  label?: string;
   disabled: boolean;
   onClick: () => void;
 }) {
@@ -114,7 +116,7 @@ export function LoadMoreButton({
           disabled ? "bg-gray-100" : "bg-white hover:bg-gray-100"
         }`}
       >
-        Load More
+        {label}
       </button>
     </div>
   );
@@ -122,10 +124,11 @@ export function LoadMoreButton({
 
 // true while the list is tall enough to show a scrollbar, so the header can
 // keep room for it
-export function useListOverflow(dependencies: unknown[]) {
+export function useListOverflow() {
   const [hasOverflow, setHasOverflow] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
+  // no deps, run every render. list size can change any time
   useEffect(() => {
     const element = listRef.current;
     if (!element) return;
@@ -145,7 +148,7 @@ export function useListOverflow(dependencies: unknown[]) {
     observer.observe(element);
 
     return () => observer.disconnect();
-  }, dependencies);
+  });
 
   return { listRef, hasOverflow };
 }

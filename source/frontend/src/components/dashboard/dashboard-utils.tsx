@@ -41,6 +41,34 @@ export function RequestTableButton({
   );
 }
 
+// read more footer, go to /announcement/id. label is from caller
+export function AnnouncementButton({
+  id,
+  label,
+}: {
+  id: number;
+  label: string;
+}) {
+  const router = useRouter();
+  const [redirecting, setRedirecting] = useState(false);
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        setRedirecting(true);
+        router.push(`/announcement/${id}`);
+      }}
+      disabled={redirecting}
+      className="group block w-full rounded-b-[30px] bg-(--primary-color-3) px-5 py-3 text-center hover:bg-(--primary-color-3-hover)"
+    >
+      <span className="text-base font-semibold text-black group-hover:text-gray-800">
+        {label}
+      </span>
+    </button>
+  );
+}
+
 // id + category + created date row. children are extra items added at the end
 export function SlideupMeta({
   categoryName,
@@ -54,11 +82,11 @@ export function SlideupMeta({
   return (
     <div className="mt-2 flex flex-wrap items-center gap-x-8 gap-y-2 text-sm text-gray-600">
       <div className="flex items-center gap-2">
-        <Icon src="/header_donut_gray.svg" />
+        <Icon src="/header_donut_gray.svg" className="size-4" />
         <span>{categoryName}</span>
       </div>
       <div className="flex items-center gap-2">
-        <Icon src="/clock.svg" />
+        <Icon src="/clock.svg" className="size-4" />
         <span>{formatFullDateTime(createdDate, "created")}</span>
       </div>
       {children}
@@ -140,7 +168,7 @@ export function SlideupDueRow({
       </div>
 
       {missing && (
-        <div className="flex h-6 items-center rounded-[20px] bg-(--primary-red) px-3 text-sm font-bold text-white">
+        <div className="flex h-6 items-center rounded-[20px] bg-(--primary-red) pb-0.75 px-3 text-sm font-bold text-white">
           Missing
         </div>
       )}

@@ -38,22 +38,25 @@ export default function Settings({
     Account: (
       <AccountPanel account={account} loading={loading} onChanged={reload} />
     ),
-    Category: <Categories isAdmin={isAdmin} />,
-    Member: <Member account={account} isAdmin={isAdmin} />,
-    Log: <Log accountLoading={loading} />,
+    Categories: <Categories isAdmin={isAdmin} />,
+    Users: <Member account={account} isAdmin={isAdmin} />,
+    "Activity Log": <Log accountLoading={loading} />,
   };
 
   return (
     <Modal onClose={onClose} className="flex h-[85vh] w-[85vw]">
       {(close) => (
         <>
-          <Sidebar
-            username={account?.username}
-            role={account?.role}
-            active={active}
-            onSelect={setActive}
-            isAdmin={isAdmin}
-          />
+          {/* fixed width holder, sidebar overlay inside so no push */}
+          <div className="relative w-75 shrink-0 max-[1100px]:w-16">
+            <Sidebar
+              username={account?.username}
+              role={account?.role}
+              active={active}
+              onSelect={setActive}
+              isAdmin={isAdmin}
+            />
+          </div>
 
           {/* Content */}
           <div className="flex min-w-0 flex-1 flex-col">
@@ -66,12 +69,12 @@ export default function Settings({
                 className="group flex items-center justify-center"
               >
                 <span className="flex size-9 items-center justify-center rounded-full group-hover:bg-gray-200">
-                  <Icon src="/close.svg" className="h-4 w-auto shrink-0" />
+                  <Icon src="/close.svg" className="size-4 shrink-0" />
                 </span>
               </button>
             </header>
 
-            <div className="flex-1 overflow-y-auto scrollbar-thin px-8">
+            <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-gutter-stable px-8">
               <div className="mx-auto max-w-9/10 py-8">{panels[active]}</div>
             </div>
           </div>
