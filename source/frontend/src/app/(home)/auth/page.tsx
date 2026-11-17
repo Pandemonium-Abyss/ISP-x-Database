@@ -2,6 +2,7 @@
 
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { getMe } from "@/lib/account";
 import { createClient } from "@/lib/supabase/client";
 
 const inputClass =
@@ -44,6 +45,11 @@ function AuthForm() {
       if (error) {
         throw new Error(error.message);
       }
+
+      // Supabase authenticates the login, but account.active is enforced by
+      // the backend account row. Verify that row before entering the app.
+      const account = await getMe({ force: true });
+      if (!account) return;
 
       router.push("/dashboard");
     } catch (err) {
@@ -153,7 +159,7 @@ function AuthForm() {
             deactivated && (
               <div
                 role="alert"
-                className="border-2 border-dashed border-(--primary-red) bg-(--primary-red)/10 p-3 text-sm text-(--primary-red)"
+                className="border-2 border-(--primary-red) bg-(--primary-red)/10 p-3 text-sm text-(--primary-red)"
               >
                 Your account has been deactivated. Ask a Lab Owner or Lab Admin
                 to turn it back on.
