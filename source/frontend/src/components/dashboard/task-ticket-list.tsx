@@ -1,6 +1,12 @@
 "use client";
 
-import { useState, type ReactNode, type RefObject } from "react";
+import {
+  createContext,
+  useContext,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import type { CategoryMap } from "@/lib/category";
 import type { Task } from "@/lib/task";
 import type { Ticket } from "@/lib/ticket";
@@ -25,6 +31,11 @@ import {
 
 // full class string, tailwind need to see it
 const GRID = "grid-cols-[2fr_1.25fr_1.25fr_minmax(120px,1fr)]";
+type PanelName = "task" | "ticket";
+
+const DashboardListLayoutContext = createContext<{
+  setCollapsed: (panel: PanelName, collapsed: boolean) => void;
+} | null>(null);
 
 type SortKey = "name" | "created_by" | "category" | "status" | "due_date";
 type SortDirection = "asc" | "desc";
@@ -154,6 +165,7 @@ function ListSection({
 
 // column header + scrolling sections. shows a message when there is nothing
 function ListPanel({
+  panel,
   titles,
   hasOverflow,
   listRef,
@@ -164,6 +176,7 @@ function ListPanel({
   sort,
   onSort,
 }: {
+  panel: PanelName;
   titles: string[];
   hasOverflow: boolean;
   listRef: RefObject<HTMLDivElement | null>;
@@ -175,6 +188,7 @@ function ListPanel({
   onSort: (key: SortKey) => void;
 }) {
   const [collapsed, setCollapsed] = useState(false);
+  const layout = useContext(DashboardListLayoutContext);
 
   return (
     <div className="flex min-h-0 flex-col gap-2">
@@ -182,24 +196,37 @@ function ListPanel({
         titles={titles}
         gridClassName={GRID}
         hasOverflow={hasOverflow}
-        onIconClick={() => setCollapsed((hidden) => !hidden)}
+        onIconClick={() => {
+          const next = !collapsed;
+          setCollapsed(next);
+          layout?.setCollapsed(panel, next);
+        }}
         iconLabel={collapsed ? "Show list section" : "Hide list section"}
+        iconPressed={collapsed}
         sortKeys={sortKeys}
         sortKey={sort.key}
         sortDirection={sort.direction}
         onSort={onSort}
       />
-
-      {!collapsed && empty ? (
-        <ListMessage>{message}</ListMessage>
-      ) : !collapsed ? (
-        <div
-          ref={listRef}
-          className="flex min-h-0 max-h-120 flex-col gap-2 overflow-y-auto scrollbar-thin"
-        >
-          {children}
+      
+      <div
+        className={`grid min-h-0 flex-1 overflow-hidden transition-[grid-template-rows] duration-300 ease-in-out ${
+          collapsed ? "grid-rows-[0fr]" : "grid-rows-[1fr]"
+        }`}
+      >
+        <div className="flex min-h-0 flex-col overflow-hidden">
+          {empty ? (
+            <ListMessage>{message}</ListMessage>
+          ) : (
+            <div
+              ref={listRef}
+              className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto scrollbar-thin"
+            >
+              {children}
+            </div>
+          )}
         </div>
-      ) : null}
+      </div>
     </div>
   );
 }
@@ -262,7 +289,8 @@ export function TaskList({
 
   return (
     <ListPanel
-      titles={["Task Name", "Created by", "Category", "Duedate"]}
+      panel="task"
+      titles={["Task Name", "Created by", "Category", "Due Date"]}
       sortKeys={["name", "created_by", "category", "due_date"]}
       sort={sort}
       onSort={onSort}
@@ -328,10 +356,22 @@ export function TicketList({
   const now = new Date();
 
   const sections = [
-    { title: "My rejected tickets", group: myRejectedTickets },
-    { title: "My pending tickets", group: myPendingTickets },
-    { title: "Others' rejected tickets", group: otherRejectedTickets },
-    { title: "Others' pending tickets", group: otherPendingTickets },
+    {
+      title: "My rejected tickets",
+      status: "rejected",
+      group: myRejectedTickets,
+    },
+    { title: "My pending tickets", status: "pending", group: myPendingTickets },
+    {
+      title: "Others' rejected tickets",
+      status: "rejected",
+      group: otherRejectedTickets,
+    },
+    {
+      title: "Others' pending tickets",
+      status: "pending",
+      group: otherPendingTickets,
+    },
   ];
 
   const loadingMine = myRejectedTickets.loading || myPendingTickets.loading;
@@ -353,6 +393,16 @@ export function TicketList({
         previous.key === key && previous.direction === "asc" ? "desc" : "asc",
     }));
   }
+
+  const orderedSections =
+    sort.key === "status"
+      ? [...sections].sort((first, second) => {
+          const firstRank = first.status === "pending" ? 0 : 1;
+          const secondRank = second.status === "pending" ? 0 : 1;
+          const result = firstRank - secondRank;
+          return sort.direction === "asc" ? result : -result;
+        })
+      : sections;
 
   const renderTicket = (ticket: Ticket) => {
     const overdue = isMissingItem(ticket, ["pending", "rejected"], now);
@@ -384,7 +434,8 @@ export function TicketList({
 
   return (
     <ListPanel
-      titles={["Ticket Name", "Status", "Category", "Duedate"]}
+      panel="ticket"
+      titles={["Ticket Name", "Status", "Category", "Due Date"]}
       sortKeys={["name", "status", "category", "due_date"]}
       sort={sort}
       onSort={onSort}
@@ -399,7 +450,7 @@ export function TicketList({
             : "Looks like everything's pretty peaceful around here. Yay!"
       }
     >
-      {sections.map(
+      {orderedSections.map(
         ({ title, group }) =>
           group.items.length > 0 && (
             <ListSection key={title} title={title} {...sectionProps(group)}>
@@ -425,10 +476,38 @@ export function TicketList({
 
 // layout only, the two lists are passed as children
 export default function TaskTicketList({ children }: { children: ReactNode }) {
+  const [collapsed, setCollapsed] = useState({
+    task: false,
+    ticket: false,
+  });
+  const taskCollapsed = collapsed.task;
+  const ticketCollapsed = collapsed.ticket;
+  const gridTemplateRows =
+    taskCollapsed && ticketCollapsed
+      ? "auto auto"
+      : taskCollapsed
+        ? "auto minmax(0, 1fr)"
+        : ticketCollapsed
+          ? "minmax(0, 1fr) auto"
+          : "minmax(0, 1fr) minmax(0, 1fr)";
+
   return (
     <div className="relative flex min-h-[80vh] min-w-0 flex-1 shrink-0 min-[1100px]:min-h-0">
-      <div className="absolute inset-0 grid grid-rows-[minmax(0,auto)_minmax(0,auto)] content-start gap-2 rounded-t-[30px] rounded-b-none bg-(--panel-bg) p-3">
-        {children}
+      <div
+        className="absolute inset-0 grid min-h-0 content-start gap-2 overflow-hidden rounded-t-[30px] rounded-b-none bg-(--panel-bg) p-3 transition-[grid-template-rows] duration-300 ease-in-out"
+        style={{ gridTemplateRows }}
+      >
+        <DashboardListLayoutContext.Provider
+          value={{
+            setCollapsed: (panel, isCollapsed) =>
+              setCollapsed((previous) => ({
+                ...previous,
+                [panel]: isCollapsed,
+              })),
+          }}
+        >
+          {children}
+        </DashboardListLayoutContext.Provider>
       </div>
     </div>
   );
