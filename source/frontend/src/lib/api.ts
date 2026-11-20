@@ -1,9 +1,9 @@
 import { getSession } from "@/lib/auth/session";
 
-// Trailing slashes are stripped so a base of "http://localhost:8000/" and
-// "http://localhost:8000" behave the same: everyone's source/.env differs.
+// Trailing slashes are stripped so a base of "http://localhost:8100/" and
+// "http://localhost:8100" behave the same: everyone's source/.env differs.
 const API_URL = (
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8100"
 ).replace(/\/+$/, "");
 
 const TIMEOUT_MS = 15_000;

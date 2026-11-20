@@ -26,7 +26,7 @@ jobs:
           MONGO_URL=mongodb://mongo:mongo@mongo:27017/?authSource=admin
           MONGO_DB=isp
           JWT_SECRET=$(openssl rand -hex 32)
-          NEXT_PUBLIC_API_URL=http://localhost:8000
+          NEXT_PUBLIC_API_URL=http://localhost:8100
           EOF
 
       - name: Build / Run docker compose
@@ -61,7 +61,7 @@ jobs:
           MONGO_URL=mongodb://mongo:mongo@mongo:27017/?authSource=admin
           MONGO_DB=isp
           JWT_SECRET=$(openssl rand -hex 32)
-          NEXT_PUBLIC_API_URL=http://localhost:8000
+          NEXT_PUBLIC_API_URL=http://localhost:8100
           EOF
 
       - name: Build / Run production compose

@@ -58,13 +58,13 @@ Everything lives in [`docs/`](docs).
 
 | Compose service | Role                                 | Port |
 | --------------- | ------------------------------------ | ---- |
-| `nextjs`        | Next.js frontend                     | 3000 |
-| `fastapi`       | FastAPI backend                      | 8000 |
+| `nextjs`        | Next.js frontend                     | 3100 |
+| `fastapi`       | FastAPI backend                      | 8100 |
 | `postgres`      | PostgreSQL 17, in a volume (dev)     | 5433 |
-| `mongo`         | MongoDB 8, lab equipment (dev)       | 27018 |
+| `mongo`         | MongoDB 8, in a volume (dev)         | 27018 |
 | `tunnel`        | Cloudflare Tunnel (prod, optional)   | —    |
 
-API docs are served at `http://localhost:8000/docs`.
+API docs are served at `http://localhost:8100/docs`.
 
 | Compose file               | Purpose                                                      |
 | -------------------------- | ------------------------------------------------------------ |
@@ -108,8 +108,8 @@ Fill in `source/.env`. It is the **only** env file; both services and both compo
 | `MONGO_DB`                  | backend, optional | Database name. Default `isp`                                    |
 | `JWT_SECRET`                | backend           | Signs the access tokens. 32+ chars: `openssl rand -hex 32`      |
 | `ACCESS_TOKEN_TTL_MINUTES`  | backend, optional | How long a login lasts. Default 720                             |
-| `NEXT_PUBLIC_API_URL`       | frontend          | `http://localhost:8000` locally; your public API URL in prod    |
-| `CORS_ORIGINS`              | backend (prod)    | Comma-separated allowed origins, default `http://localhost:3000` |
+| `NEXT_PUBLIC_API_URL`       | frontend          | `http://localhost:8100` locally; your public API URL in prod    |
+| `CORS_ORIGINS`              | backend (prod)    | Comma-separated allowed origins, default `http://localhost:3100` |
 | `WEB_CONCURRENCY`           | backend (prod)    | Server workers, default `2`                                     |
 | `TUNNEL_TOKEN`              | tunnel (prod)     | Cloudflare Tunnel token, only with `--profile tunnel`           |
 
@@ -134,9 +134,9 @@ docker compose -f docker-compose.dev.yaml --env-file source/.env up -d
 
 The first run builds both images and takes a few minutes. Then open:
 
-- Frontend: <http://localhost:3000>
-- Backend: <http://localhost:8000> (health check at `/health`)
-- Swagger UI: <http://localhost:8000/docs>
+- Frontend: <http://localhost:3100>
+- Backend: <http://localhost:8100> (health check at `/health`)
+- Swagger UI: <http://localhost:8100/docs>
 
 The backend creates any missing tables when it starts, so a brand new volume
 needs no migration step.
@@ -152,7 +152,7 @@ docker compose exec fastapi \
 ```
 
 It asks for a password (or reads `OWNER_PASSWORD`), and that email and
-password are what you sign in with at <http://localhost:3000/auth>. Everyone
+password are what you sign in with at <http://localhost:3100/auth>. Everyone
 else is created from the app, by an admin.
 
 Run it again with the same email to reset that password and put the account
@@ -210,7 +210,7 @@ Check that it's healthy:
 
 ```bash
 docker compose -f docker-compose.prod.yaml ps
-curl -f http://localhost:8000/health
+curl -f http://localhost:8100/health
 ```
 
 ### Exposing it with Cloudflare Tunnel (optional)
@@ -237,14 +237,14 @@ docker compose -f docker-compose.prod.yaml --env-file source/.env --profile tunn
 
 ## How the services talk to each other
 
-- **From the browser** (client-side fetches): use `NEXT_PUBLIC_API_URL` — `http://localhost:8000` locally.
+- **From the browser** (client-side fetches): use `NEXT_PUBLIC_API_URL` — `http://localhost:8100` locally.
 - **From inside a container** (SSR, server components): use `http://fastapi:8000`. Compose resolves service names as hostnames; `localhost` inside a container means that container.
 
 ## Troubleshooting
 
 **`env file ./source/.env not found`** or **`set in source/.env`**: you skipped step 1, or left out `--env-file source/.env`.
 
-**Port 3000 or 8000 already in use** — something else is bound to that port. Stop it, or change the host side of the mapping in `docker-compose.dev.yaml` (the left number in `"3000:3000"`).
+**Port 3100 or 8100 already in use** — something else is bound to that port. Stop it, or change the host side of the mapping in `docker-compose.dev.yaml` (the left number in `"3100:3000"`).
 
 **`failed to bind host port 0.0.0.0:5432: address already in use`** — a
 PostgreSQL on your own machine is holding 5432. The container is published on

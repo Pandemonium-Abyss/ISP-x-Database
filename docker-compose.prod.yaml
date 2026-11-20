@@ -7,7 +7,8 @@ services:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?set in source/.env}
     image: isp-frontend:latest
     ports:
-      - "3000:3000"
+      # host 3100 -> the app's own 3000 inside the container
+      - "3100:3000"
     restart: unless-stopped
     depends_on:
       fastapi:
@@ -19,11 +20,12 @@ services:
       dockerfile: Dockerfile
     image: isp-backend:latest
     ports:
-      - "8000:8000"
+      # host 8100 -> the API's own 8000 inside the container
+      - "8100:8000"
     env_file:
       - ./source/.env
     environment:
-      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3100}
       - WEB_CONCURRENCY=${WEB_CONCURRENCY:-2}
     restart: unless-stopped
     depends_on:
