@@ -61,6 +61,7 @@ Everything lives in [`docs/`](docs).
 | `nextjs`        | Next.js frontend                     | 3000 |
 | `fastapi`       | FastAPI backend                      | 8000 |
 | `postgres`      | PostgreSQL 17, in a volume (dev)     | 5433 |
+| `mongo`         | MongoDB 8, lab equipment (dev)       | 27018 |
 | `tunnel`        | Cloudflare Tunnel (prod, optional)   | —    |
 
 API docs are served at `http://localhost:8000/docs`.
@@ -102,6 +103,9 @@ Fill in `source/.env`. It is the **only** env file; both services and both compo
 | `POSTGRES_PASSWORD`         | postgres          | Its password — fine to leave as the sample locally              |
 | `POSTGRES_DB`               | postgres          | Database name                                                   |
 | `DATABASE_URL`              | backend           | `postgresql+asyncpg://…`; host `postgres` in compose             |
+| `MONGO_INITDB_ROOT_USERNAME` / `_PASSWORD` | mongo | Root user, created on the container's first run only |
+| `MONGO_URL`                 | backend           | `mongodb://user:pass@mongo:27017/?authSource=admin` in compose  |
+| `MONGO_DB`                  | backend, optional | Database name. Default `isp`                                    |
 | `JWT_SECRET`                | backend           | Signs the access tokens. 32+ chars: `openssl rand -hex 32`      |
 | `ACCESS_TOKEN_TTL_MINUTES`  | backend, optional | How long a login lasts. Default 720                             |
 | `NEXT_PUBLIC_API_URL`       | frontend          | `http://localhost:8000` locally; your public API URL in prod    |
@@ -173,15 +177,16 @@ docker compose exec nextjs sh             # shell into the frontend
 docker compose exec nextjs npm install <package>
 docker compose exec fastapi uv run pytest # backend tests (live DB, cleans up)
 docker compose exec postgres psql -U postgres -d isp   # psql prompt
+docker compose exec mongo mongosh -u mongo -p mongo isp --authenticationDatabase admin   # mongosh
 docker compose down                       # stop and remove
 docker compose down -v                    # also clear volumes, database included
 ```
 
 ## 3. Run in production
 
-`docker-compose.prod.yaml` builds a Next.js standalone server, runs the backend with `fastapi run` on several workers as a non-root user, and runs PostgreSQL 17 with its data in the `postgres-data` volume. All three have health checks and restart automatically. The database port is not published; only the backend reaches it, over the compose network.
+`docker-compose.prod.yaml` builds a Next.js standalone server, runs the backend with `fastapi run` on several workers as a non-root user, and runs PostgreSQL 17 and MongoDB 8 with their data in the `postgres-data` and `mongo-data` volumes. All four have health checks and restart automatically. Neither database port is published; only the backend reaches them, over the compose network.
 
-For production, set a real `POSTGRES_PASSWORD` (and the matching password in `DATABASE_URL`) and a freshly generated `JWT_SECRET` before the first start.
+For production, set real `POSTGRES_PASSWORD` and `MONGO_INITDB_ROOT_PASSWORD` values (and the matching passwords in `DATABASE_URL` and `MONGO_URL`) and a freshly generated `JWT_SECRET` before the first start.
 
 ```bash
 # on the server

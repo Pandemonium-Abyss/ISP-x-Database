@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.datetime_utils import to_due_date, to_utc
 from app.service.account_service import is_admin, outranks
+from app.service.notification_service import NotificationType, Notifier, admin_ids
 from app.service.task_service import TaskRequest, add_task
 from app.model import (
     Ticket,
@@ -13,8 +14,8 @@ from app.model import (
     Category,
     AccountRole,
     TicketStatus,
-    AuditLog,
 )
+from app.service.audit_service import record
 
 
 async def retrieve_tickets(
@@ -109,10 +110,15 @@ async def retrieve_tickets(
     return {"Tickets": tickets}
 
 
+def ticket_link(ticket_id: int) -> str:
+    return f"/request-table/ticket/{ticket_id}"
+
+
 async def create_ticket(
     session: AsyncSession,
     me: Account,
     data,
+    notifier: Notifier | None = None,
 ):
     category = await session.get(Category, data.category_id)
 
@@ -172,31 +178,20 @@ async def create_ticket(
     }
 
     for col_name, new_value in audit_fields.items():
-        session.add(
-            AuditLog(
-                from_table="ticket",
-                row_id=str(ticket.id),
-                column_name=col_name,
-                old_value=None,
-                new_value=(
-                    str(new_value)
-                    if new_value is not None
-                    else None
-                ),
-                by_whom=me.id,
-            )
-        )
+        record(session, "ticket", ticket.id, col_name, None, new_value, me.id, action="created")
 
     if new_quota is not None:
-        session.add(
-            AuditLog(
-                from_table="account",
-                row_id=str(me.id),
-                column_name="quota",
-                old_value=str(new_quota + 1),
-                new_value=str(new_quota),
-                by_whom=me.id,
-            )
+        record(session, "account", me.id, "quota", new_quota + 1, new_quota, me.id)
+
+    if notifier is not None:
+        # Every admin, so it gets picked up by whoever is around; the ones
+        # who cannot judge it still see the queue grow.
+        notifier.add(
+            await admin_ids(session),
+            type=NotificationType.TICKET_CREATED,
+            title=f'{me.username} filed "{ticket.name}"',
+            link=ticket_link(ticket.id),
+            actor=me,
         )
 
     await session.commit()
@@ -210,6 +205,7 @@ async def update_ticket(
     me: Account,
     ticket_id: int,
     data,
+    notifier: Notifier | None = None,
 ):
     ticket = await session.get(Ticket, ticket_id)
 
@@ -265,24 +261,13 @@ async def update_ticket(
                 detail="Category not found",
             )
 
+    # A field change worth logging, or None when it did not really change
+    # (compared as text, so two equal dates count as the same).
     def update_ticket_log(col_name, old_val, new_val):
-        audit = AuditLog(
-            from_table="ticket",
-            row_id=str(ticket.id),
-            column_name=col_name,
-            old_value=(
-                str(old_val) if old_val is not None else None
-            ),
-            new_value=(
-                str(new_val) if new_val is not None else None
-            ),
-            by_whom=me.id,
-        )
-
-        if audit.old_value == audit.new_value:
+        if (None if old_val is None else str(old_val)) == (None if new_val is None else str(new_val)):
             return None
 
-        return audit
+        return (col_name, old_val, new_val)
 
     audit_list = []
 
@@ -323,6 +308,27 @@ async def update_ticket(
             ticket.completed_by = me.id
             ticket.completed_at = dt.datetime.now(dt.timezone.utc)
 
+        # Accepted or rejected: tell the person who filed it. A resubmit
+        # (back to pending) goes to the admins instead, like a new ticket.
+        if notifier is not None and data.status is not ticket.status:
+            name = data.name or ticket.name
+            if data.status is TicketStatus.PENDING:
+                notifier.add(
+                    await admin_ids(session),
+                    type=NotificationType.TICKET_CREATED,
+                    title=f'{me.username} resubmitted "{name}"',
+                    link=ticket_link(ticket.id),
+                    actor=me,
+                )
+            else:
+                notifier.add(
+                    [ticket.created_by],
+                    type=NotificationType.TICKET_STATUS,
+                    title=f'Your ticket "{name}" was {data.status.value}',
+                    link=ticket_link(ticket.id),
+                    actor=me,
+                )
+
         ticket.status = data.status
 
     if data.category_id is not None:
@@ -348,7 +354,7 @@ async def update_ticket(
 
     for audit in audit_list:
         if audit is not None:
-            session.add(audit)
+            record(session, "ticket", ticket.id, *audit, me.id)
 
     # accept make the task from the saved ticket, same transaction, so a
     # failed task leaves the ticket as it was
@@ -363,6 +369,7 @@ async def update_ticket(
                 assignees=data.assignees,
             ),
             session,
+            notifier,
         )
 
     await session.commit()
@@ -405,20 +412,7 @@ async def delete_ticket(
     }
 
     for col_name, old_value in audit_fields.items():
-        session.add(
-            AuditLog(
-                from_table="ticket",
-                row_id=str(ticket.id),
-                column_name=col_name,
-                old_value=(
-                    str(old_value)
-                    if old_value is not None
-                    else None
-                ),
-                new_value=None,
-                by_whom=me.id,
-            )
-        )
+        record(session, "ticket", ticket.id, col_name, old_value, None, me.id, action="deleted")
 
     await session.delete(ticket)
     await session.commit()

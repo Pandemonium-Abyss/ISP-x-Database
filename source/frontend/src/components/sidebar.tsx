@@ -7,7 +7,7 @@ import Icon from "@/components/ui/icon";
 import { useSettings } from "./setting-provider";
 import { clearAllApiCache } from "@/lib/cache/cache";
 
-const mainNavigation = ["dashboard", "request-table"];
+const mainNavigation = ["dashboard", "request-table", "equipment"];
 const bottomNavigation = ["announcement"];
 
 const expandDelay = 100;

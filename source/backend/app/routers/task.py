@@ -7,14 +7,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import getSession
 from app.model import Account, TaskStatus
+from app.service.audit_service import AuditWriter
 from app.service import account_service, task_service
+from app.service.notification_service import Notifier, get_notifier
 
 
 TaskRequest = task_service.TaskRequest
 TaskUpdate = task_service.TaskUpdate
 
 
-taskRouter = APIRouter(prefix="/task", dependencies=[Depends(account_service.get_current_auth_user)])
+taskRouter = APIRouter(prefix="/task", dependencies=[Depends(account_service.get_current_auth_user), AuditWriter])
 
 # Filter params here are optional. If given none, then get all.
 # Filters: id, categories, users (assignees), status, limit
@@ -59,8 +61,11 @@ async def create_task(
     me: Annotated[Account, Depends(account_service.require_admin)],
     body: TaskRequest,
     session: Annotated[AsyncSession, Depends(getSession)],
+    notifier: Annotated[Notifier, Depends(get_notifier)],
 ):
-    return await task_service.create_task(me, body, session)
+    result = await task_service.create_task(me, body, session, notifier)
+    await notifier.send()
+    return result
 
 
 @taskRouter.put("/{task_id}", tags=["Task"])
@@ -69,8 +74,11 @@ async def update_task(
     task_id: int,
     session: Annotated[AsyncSession, Depends(getSession)],
     body: TaskUpdate,
+    notifier: Annotated[Notifier, Depends(get_notifier)],
 ):
-    return await task_service.update_task(me, task_id, session, body)
+    result = await task_service.update_task(me, task_id, session, body, notifier)
+    await notifier.send()
+    return result
 
 
 @taskRouter.delete("/{task_id}", tags=["Task"])

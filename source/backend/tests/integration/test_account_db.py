@@ -60,8 +60,10 @@ def test_admin_creates_trial_user_with_login_and_audit(client, db):
     assert (row.role, row.quota, row.active) == (AccountRole.LAB_USER, 10, True)
     assert login_exists(db, user_id)
 
-    audit = {r.column_name: r.new_value for r in db.audit_rows("account", user_id)}
-    assert audit == {"created": row.username, "quota": "10"}
+    rows = db.audit_rows("account", user_id)
+    # One "created" entry holding both fields, not a pseudo column per fact.
+    assert {r.action for r in rows} == {"created"}
+    assert {r.column_name: r.new_value for r in rows} == {"username": row.username, "quota": "10"}
 
     duplicate = client.post(
         "/account/admin",

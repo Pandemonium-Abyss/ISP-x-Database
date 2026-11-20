@@ -11,9 +11,10 @@ from app.database import getSession
 from app.limits import USERNAME_MAX
 from app.model import Account, AccountRole
 from app.security import PASSWORD_MAX_BYTES, TokenUser
+from app.service.audit_service import AuditWriter
 from app.service import account_service
 
-accountRouter = APIRouter(prefix="/account", dependencies=[Depends(account_service.get_current_auth_user)])
+accountRouter = APIRouter(prefix="/account", dependencies=[Depends(account_service.get_current_auth_user), AuditWriter])
 
 class CreateAccountRequest(BaseModel):
     username: str = Field(min_length=1, max_length=USERNAME_MAX)

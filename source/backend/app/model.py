@@ -6,7 +6,6 @@ import uuid
 from typing import Optional
 
 from sqlalchemy import (
-    BigInteger,
     Boolean,
     CheckConstraint,
     Column,
@@ -19,7 +18,6 @@ from sqlalchemy import (
     Integer,
     String,
     Table,
-    Text,
     UniqueConstraint,
     func,
     text,
@@ -144,7 +142,6 @@ class Account(Base):
     )
 
     announcements: Mapped[list["Announcement"]] = relationship(back_populates="creator")
-    audit_entries: Mapped[list["AuditLog"]] = relationship(back_populates="actor")
 
     def __repr__(self) -> str:
         return f"<Account {self.username!r} role={self.role.value} active={self.active}>"
@@ -290,27 +287,6 @@ class Announcement(Base):
     def __repr__(self) -> str:
         return f"<Announcement {self.id} {self.name!r}>"
 
-class AuditLog(Base):
-    __tablename__ = "audit_log"
-    __table_args__ = (
-        Index("idx_audit_row", "from_table", "row_id", "occurred_at"),
-        Index("idx_audit_actor", "by_whom"),
-    )
-
-    id: Mapped[int] = mapped_column(BigInteger, Identity(always=False), primary_key=True)
-    from_table: Mapped[str] = mapped_column(String(64), nullable=False)
-    row_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True)
-    column_name: Mapped[str] = mapped_column(String(64), nullable=False)
-    old_value: Mapped[Optional[str]] = mapped_column(Text)
-    new_value: Mapped[Optional[str]] = mapped_column(Text)
-    by_whom: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("account.id", ondelete="SET NULL")
-    )
-    occurred_at: Mapped[dt.datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
-    )
-
-    actor: Mapped[Optional[Account]] = relationship(back_populates="audit_entries")
-
-    def __repr__(self) -> str:
-        return f"<AuditLog {self.id} {self.from_table}.{self.column_name} row={self.row_id}>"
+# The audit log lives in MongoDB now (app/service/audit_service.py). Any
+# audit_log table left from before is copied there and dropped on startup by
+# app/migrate_audit_log.py.
