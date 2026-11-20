@@ -31,6 +31,8 @@ services:
       # be accepting connections first, not just started.
       postgres:
         condition: service_healthy
+      mongo:
+        condition: service_healthy
 
   postgres:
     image: postgres:17-alpine
@@ -62,5 +64,20 @@ services:
       fastapi:
         condition: service_healthy
 
+  mongo:
+    image: mongo:8.0
+    # Not published, like postgres: only the backend talks to it.
+    env_file:
+      - ./source/.env
+    volumes:
+      - mongo-data:/data/db
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      retries: 10
+      start_period: 15s
+
 volumes:
   postgres-data:
+  mongo-data:

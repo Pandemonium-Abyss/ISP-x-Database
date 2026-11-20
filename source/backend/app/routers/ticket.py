@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import getSession
 from app.limits import DESCRIPTION_MAX, Name
 from app.model import Account, TicketStatus
+from app.service.notification_service import Notifier, get_notifier
 from app.service import account_service, ticket_service
 
 
@@ -81,12 +82,16 @@ async def create_ticket(
     data: TicketCreate,
     session: Annotated[AsyncSession, Depends(getSession)],
     me: Annotated[Account, Depends(account_service.get_current_account)],
+    notifier: Annotated[Notifier, Depends(get_notifier)],
 ):
-    return await ticket_service.create_ticket(
+    result = await ticket_service.create_ticket(
         session=session,
         me=me,
         data=data,
+        notifier=notifier,
     )
+    await notifier.send()
+    return result
 
 
 @ticketRouter.put("/{ticket_id}", tags=["Tickets"])
@@ -95,13 +100,17 @@ async def update_ticket(
     data: TicketUpdate,
     session: Annotated[AsyncSession, Depends(getSession)],
     me: Annotated[Account, Depends(account_service.get_current_account)],
+    notifier: Annotated[Notifier, Depends(get_notifier)],
 ):
-    return await ticket_service.update_ticket(
+    result = await ticket_service.update_ticket(
         session=session,
         me=me,
         ticket_id=ticket_id,
         data=data,
+        notifier=notifier,
     )
+    await notifier.send()
+    return result
 
 
 @ticketRouter.delete("/{ticket_id}", tags=["Tickets"])

@@ -21,6 +21,10 @@ jobs:
           POSTGRES_PASSWORD=postgres
           POSTGRES_DB=isp
           DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/isp
+          MONGO_INITDB_ROOT_USERNAME=mongo
+          MONGO_INITDB_ROOT_PASSWORD=mongo
+          MONGO_URL=mongodb://mongo:mongo@mongo:27017/?authSource=admin
+          MONGO_DB=isp
           JWT_SECRET=$(openssl rand -hex 32)
           NEXT_PUBLIC_API_URL=http://localhost:8000
           EOF
@@ -52,6 +56,10 @@ jobs:
           POSTGRES_PASSWORD=postgres
           POSTGRES_DB=isp
           DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/isp
+          MONGO_INITDB_ROOT_USERNAME=mongo
+          MONGO_INITDB_ROOT_PASSWORD=mongo
+          MONGO_URL=mongodb://mongo:mongo@mongo:27017/?authSource=admin
+          MONGO_DB=isp
           JWT_SECRET=$(openssl rand -hex 32)
           NEXT_PUBLIC_API_URL=http://localhost:8000
           EOF

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.datetime_utils import to_due_date, to_utc
 from app.service.account_service import is_admin, outranks
+from app.service.notification_service import NotificationType, Notifier, admin_ids
 from app.service.task_service import TaskRequest, add_task
 from app.model import (
     Ticket,
@@ -109,10 +110,15 @@ async def retrieve_tickets(
     return {"Tickets": tickets}
 
 
+def ticket_link(ticket_id: int) -> str:
+    return f"/request-table/ticket/{ticket_id}"
+
+
 async def create_ticket(
     session: AsyncSession,
     me: Account,
     data,
+    notifier: Notifier | None = None,
 ):
     category = await session.get(Category, data.category_id)
 
@@ -199,6 +205,17 @@ async def create_ticket(
             )
         )
 
+    if notifier is not None:
+        # Every admin, so it gets picked up by whoever is around; the ones
+        # who cannot judge it still see the queue grow.
+        notifier.add(
+            await admin_ids(session),
+            type=NotificationType.TICKET_CREATED,
+            title=f'{me.username} filed "{ticket.name}"',
+            link=ticket_link(ticket.id),
+            actor=me,
+        )
+
     await session.commit()
     await session.refresh(ticket)
 
@@ -210,6 +227,7 @@ async def update_ticket(
     me: Account,
     ticket_id: int,
     data,
+    notifier: Notifier | None = None,
 ):
     ticket = await session.get(Ticket, ticket_id)
 
@@ -323,6 +341,27 @@ async def update_ticket(
             ticket.completed_by = me.id
             ticket.completed_at = dt.datetime.now(dt.timezone.utc)
 
+        # Accepted or rejected: tell the person who filed it. A resubmit
+        # (back to pending) goes to the admins instead, like a new ticket.
+        if notifier is not None and data.status is not ticket.status:
+            name = data.name or ticket.name
+            if data.status is TicketStatus.PENDING:
+                notifier.add(
+                    await admin_ids(session),
+                    type=NotificationType.TICKET_CREATED,
+                    title=f'{me.username} resubmitted "{name}"',
+                    link=ticket_link(ticket.id),
+                    actor=me,
+                )
+            else:
+                notifier.add(
+                    [ticket.created_by],
+                    type=NotificationType.TICKET_STATUS,
+                    title=f'Your ticket "{name}" was {data.status.value}',
+                    link=ticket_link(ticket.id),
+                    actor=me,
+                )
+
         ticket.status = data.status
 
     if data.category_id is not None:
@@ -363,6 +402,7 @@ async def update_ticket(
                 assignees=data.assignees,
             ),
             session,
+            notifier,
         )
 
     await session.commit()

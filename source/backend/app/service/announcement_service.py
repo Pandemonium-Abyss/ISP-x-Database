@@ -3,6 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.model import Announcement, Account, AuditLog
+from app.service.notification_service import NotificationType, Notifier, active_ids
 
 
 async def retrieve_announcements(
@@ -27,7 +28,8 @@ async def retrieve_announcements(
 async def create_announcement(
     session: AsyncSession,
     me: Account,
-    data
+    data,
+    notifier: Notifier | None = None,
 ):
     announcement = Announcement(
         name=data.name,
@@ -58,6 +60,15 @@ async def create_announcement(
 
     session.add(name_audit)
     session.add(description_audit)
+
+    if notifier is not None:
+        notifier.add(
+            await active_ids(session),
+            type=NotificationType.ANNOUNCEMENT,
+            title=f"New announcement: {announcement.name}",
+            link=f"/announcement/{announcement.id}",
+            actor=me,
+        )
 
     await session.commit()
     await session.refresh(announcement)

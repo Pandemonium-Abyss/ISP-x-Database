@@ -31,6 +31,7 @@ from sqlalchemy.pool import NullPool
 
 from app.database import getSession
 from app.main import app
+from app.mongo import getMongo, init_mongo
 from app.model import (
     Account,
     AccountRole,
@@ -133,12 +134,26 @@ def client(db_url, me_id):
     # The context manager keeps one event loop for the whole test, which is
     # what lets the pooled connections be reused across requests.
     with TestClient(app) as tc:
+        # A throwaway Mongo database per test, so equipment and the
+        # notifications every task or ticket write sends never reach the
+        # real one. Set up like the real one, dropped afterwards.
+        mongo_name = f"pytest_{uuid.uuid4().hex[:8]}"
+        mongo_db = tc.app.state.mongo[mongo_name]
+
+        async def test_mongo():
+            yield mongo_db
+
+        app.dependency_overrides[getMongo] = test_mongo
+        tc.portal.call(init_mongo, mongo_db)
+
         tc.engine = engine
+        tc.mongo = mongo_db
         tc.me_id = me_id
         tc.login = lambda account_id, email=None: current.update(id=account_id, email=email)
         tc.as_me = lambda: current.update(id=me_id, email=None)
         yield tc
         tc.portal.call(engine.dispose)
+        tc.portal.call(tc.app.state.mongo.drop_database, mongo_name)
 
     app.dependency_overrides.clear()
 

@@ -4,6 +4,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getMe, onAccountChange, type Account } from "@/lib/account";
 import Avatar from "@/components/ui/avatar";
+import NotificationBell from "@/components/notification-bell";
 import { clearAllApiCache } from "@/lib/cache/cache";
 
 export default function Topbar() {
@@ -55,6 +56,7 @@ export default function Topbar() {
               <h1 className="font-bold">{account.role}</h1>
             </div>
 
+            <NotificationBell />
             <Avatar name={account.username} className="h-9 w-9" />
           </>
         )}

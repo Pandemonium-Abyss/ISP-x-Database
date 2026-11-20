@@ -11,6 +11,13 @@ from app.datetime_utils import to_due_date, to_utc
 from app.limits import DESCRIPTION_MAX, Name
 from app.model import Account, AccountRole, AuditLog, Category, Task, TaskStatus
 from app.service.account_service import is_admin
+from app.service.notification_service import NotificationType, Notifier
+
+STATUS_LABEL = {TaskStatus.IN_PROGRESS: "in progress", TaskStatus.COMPLETED: "completed"}
+
+
+def task_link(task_id: int) -> str:
+    return f"/request-table/task/{task_id}"
 
 
 # Base Task model.
@@ -140,8 +147,9 @@ async def create_task(
     me: Account,
     body: TaskRequest,
     session: AsyncSession,
+    notifier: Notifier | None = None,
 ):
-    task = await add_task(me, body, session)
+    task = await add_task(me, body, session, notifier)
 
     await session.commit()
     await session.refresh(task)
@@ -154,6 +162,7 @@ async def add_task(
     me: Account,
     body: TaskRequest,
     session: AsyncSession,
+    notifier: Notifier | None = None,
 ) -> Task:
     # Create new task based on the body.
     await ensure_category(session, body.category_id)
@@ -212,6 +221,15 @@ async def add_task(
             )
         )
 
+    if notifier is not None:
+        notifier.add(
+            (assignee.id for assignee in task.assignees),
+            type=NotificationType.TASK_ASSIGNED,
+            title=f'You were assigned to "{task.name}"',
+            link=task_link(task.id),
+            actor=me,
+        )
+
     return task
 
 
@@ -220,6 +238,7 @@ async def update_task(
     task_id: int,
     session: AsyncSession,
     body: TaskUpdate,
+    notifier: Notifier | None = None,
 ):
     task = await session.scalar(
         select(Task)
@@ -275,6 +294,15 @@ async def update_task(
         )
         if body.status is not task.status:
             stamp_completion(task, body.status, me)
+            if notifier is not None:
+                # Whoever set it up, and everyone else working on it.
+                notifier.add(
+                    [task.created_by, *(assignee.id for assignee in task.assignees)],
+                    type=NotificationType.TASK_STATUS,
+                    title=f'"{body.name or task.name}" is now {STATUS_LABEL[body.status]}',
+                    link=task_link(task.id),
+                    actor=me,
+                )
         task.status = body.status
 
     if body.category_id is not None:
@@ -323,6 +351,14 @@ async def update_task(
                 create_audit_log("assignees", old_assignee_value, new_assignee_value)
             )
             task.assignees = new_assignees
+            if notifier is not None:
+                notifier.add(
+                    added_ids,
+                    type=NotificationType.TASK_ASSIGNED,
+                    title=f'You were assigned to "{task.name}"',
+                    link=task_link(task.id),
+                    actor=me,
+                )
 
     for audit in audit_list:
         if audit is not None:
