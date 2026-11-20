@@ -4,7 +4,8 @@ services:
       context: ./source/frontend
       dockerfile: Dockerfile.dev
     ports:
-      - "3000:3000"
+      # host 3100 -> the app's own 3000 inside the container
+      - "3100:3000"
     volumes:
       - ./source/frontend:/app/frontend/
       - /app/frontend/node_modules
@@ -25,7 +26,8 @@ services:
       context: ./source/backend
       dockerfile: Dockerfile.dev
     ports:
-      - "8000:8000"
+      # host 8100 -> the API's own 8000 inside the container
+      - "8100:8000"
     volumes:
       - ./source/backend:/app/backend/
     env_file:

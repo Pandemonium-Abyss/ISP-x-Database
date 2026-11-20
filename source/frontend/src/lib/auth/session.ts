@@ -43,7 +43,7 @@ type LoginResponse = {
 };
 
 const API_URL = (
-  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8100"
 ).replace(/\/+$/, "");
 
 // POST /auth/login on the backend, which hands back a token signed with the
