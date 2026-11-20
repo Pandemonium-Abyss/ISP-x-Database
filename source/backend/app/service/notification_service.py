@@ -39,6 +39,7 @@ class NotificationType(str, enum.Enum):
     TASK_STATUS = "task_status"
     TICKET_CREATED = "ticket_created"
     TICKET_STATUS = "ticket_status"
+    TICKET_COMMENT = "ticket_comment"
     ANNOUNCEMENT = "announcement"
 
 

@@ -8,7 +8,8 @@ import {
   type TicketRow,
 } from "@/lib/ticket";
 import type { Category } from "@/lib/category";
-import type { AccountRole, Member } from "@/lib/account";
+import { isAdminRole, type AccountRole, type Member } from "@/lib/account";
+import TicketThread from "@/components/request-table/TicketThread";
 import { TextInput } from "@/components/ui/field";
 import {
   FormButton,
@@ -156,6 +157,12 @@ export default function TicketDetailModal({
           />
         </RequestFields>
       </FormColumn>
+
+      <TicketThread
+        ticketId={ticket.id}
+        currentUserId={currentUserId}
+        isAdmin={isAdminRole(currentRole)}
+      />
 
       {canJudge && (
         <MemberPanel

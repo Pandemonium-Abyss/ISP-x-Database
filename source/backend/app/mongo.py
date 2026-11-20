@@ -32,6 +32,7 @@ MONGO_DB = os.environ.get("MONGO_DB", "isp")
 EQUIPMENT = "equipment"
 NOTIFICATIONS = "notifications"
 AUDIT_LOGS = "audit_logs"
+TICKET_THREADS = "ticket_threads"
 
 # A last line of defence under the Pydantic models: even a document written
 # from mongosh has to carry these, with these types. `specs` is deliberately
@@ -79,6 +80,7 @@ NOTIFICATION_SCHEMA = {
                     "task_status",
                     "ticket_created",
                     "ticket_status",
+                    "ticket_comment",
                     "announcement",
                 ]
             },
@@ -128,6 +130,34 @@ AUDIT_LOG_SCHEMA = {
 }
 
 
+TICKET_THREAD_SCHEMA = {
+    "$jsonSchema": {
+        "bsonType": "object",
+        "required": ["ticket_id", "messages", "created_at"],
+        "properties": {
+            "ticket_id": {"bsonType": ["int", "long"]},
+            "messages": {
+                "bsonType": "array",
+                "maxItems": 500,
+                "items": {
+                    "bsonType": "object",
+                    "required": ["id", "by", "text", "at"],
+                    "properties": {
+                        "id": {"bsonType": "objectId"},
+                        "by": {"bsonType": "string"},
+                        "text": {"bsonType": "string", "minLength": 1, "maxLength": 2000},
+                        "at": {"bsonType": "date"},
+                        "edited_at": {"bsonType": ["date", "null"]},
+                    },
+                },
+            },
+            "created_at": {"bsonType": "date"},
+            "updated_at": {"bsonType": "date"},
+        },
+    }
+}
+
+
 def connect() -> AsyncMongoClient:
     """One client per app lifetime, made in the lifespan rather than at import:
     an async client belongs to the event loop it first runs on, and once
@@ -160,6 +190,11 @@ async def init_mongo(db: AsyncDatabase) -> None:
 
     await ensure_collection(db, EQUIPMENT, EQUIPMENT_SCHEMA)
     await ensure_collection(db, NOTIFICATIONS, NOTIFICATION_SCHEMA)
+
+    await ensure_collection(db, TICKET_THREADS, TICKET_THREAD_SCHEMA)
+    # One thread per ticket. Also what turns a second upsert for the same
+    # ticket (a full thread) into an error rather than a duplicate thread.
+    await db[TICKET_THREADS].create_index("ticket_id", unique=True, name="one_per_ticket")
 
     await ensure_collection(db, AUDIT_LOGS, AUDIT_LOG_SCHEMA)
     audit = db[AUDIT_LOGS]
