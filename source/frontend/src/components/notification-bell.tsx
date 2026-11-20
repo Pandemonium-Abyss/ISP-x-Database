@@ -22,6 +22,7 @@ const TYPE_LABEL: Record<Notification["type"], string> = {
   task_status: "Task",
   ticket_created: "Ticket",
   ticket_status: "Ticket",
+  ticket_comment: "Comment",
   announcement: "Announcement",
 };
 

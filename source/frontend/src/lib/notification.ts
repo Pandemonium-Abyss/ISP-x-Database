@@ -7,6 +7,7 @@ export type NotificationType =
   | "task_status"
   | "ticket_created"
   | "ticket_status"
+  | "ticket_comment"
   | "announcement";
 
 export type Notification = {
