@@ -1,6 +1,20 @@
-# ISP — Labrador
+<p align="center">
+  <img src="docs/images/logo.png" alt="Labrador logo" width="160" />
+</p>
 
-Full-stack project with a Next.js frontend and a FastAPI backend, both run through Docker Compose in development mode with hot reload.
+<h1 align="center">Labrador</h1>
+
+<p align="center">
+  Lab workflow &amp; request management — Next.js frontend, FastAPI backend, PostgreSQL.
+</p>
+
+<p align="center">
+  <img src="docs/images/lab.jpg" alt="Labrador dashboard in production" width="720" />
+  <br />
+  <em>The live Labrador dashboard.</em>
+</p>
+
+---
 
 **Course:** Individual Software Development Process' 2026 \
 **Team:** Wassawin the Goat of All Time (W-GOAT) \
@@ -16,19 +30,25 @@ Full-stack project with a Next.js frontend and a FastAPI backend, both run throu
 | Wassawin Swangjaeng      | 6810545905 | [CYRTRUS](https://github.com/CYRTRUS)               |
 | Siraphob Phonphakdee     | 6810545930 | [vaporform](https://github.com/vaporform)           |
 
-## Project status
-
-Currently in Phase iteration 2 (Such as wireframe, various endpoints and etc.)
-Overall a working demo.
-
 ## Documents & diagrams
 
-All specs, reports, and diagrams live in [`docs/`](docs):
+Everything lives in [`docs/`](docs).
+
+### Iteration reports
+
+| Iteration | Report                                                                                          |
+| --------- | ----------------------------------------------------------------------------------------------- |
+| 1         | [ISP-SKE26 Iteration Report 1 W-GOAT.pdf](docs/ISP-SKE26%20Iteration%20Report%201%20W-GOAT.pdf) |
+| 2         | [ISP-SKE26 Iteration Report 2 W-GOAT.pdf](docs/ISP-SKE26%20Iteration%20Report%202%20W-GOAT.pdf) |
+| 3         | [ISP-SKE26 Iteration Report 3 W-GOAT.pdf](docs/ISP-SKE26%20Iteration%20Report%203%20W-GOAT.pdf) |
+| 4         | [ISP-SKE26 Iteration Report 4 W-GOAT.pdf](docs/ISP-SKE26%20Iteration%20Report%204%20W-GOAT.pdf) |
+| 5         | [ISP-SKE26 Iteration Report 5 W-GOAT.pdf](docs/ISP-SKE26%20Iteration%20Report%205%20W-GOAT.pdf) |
+
+### Specs & diagrams
 
 | File / folder                                                  | Contents                           |
 | -------------------------------------------------------------- | ---------------------------------- |
 | `docs/ISP-SKE-26 3 Wassawin the Goat of All Time (W-GOAT).pdf` | Software Requirement Specification |
-| `docs/ISP-SKE26 Iteration Report 1 W-GOAT.pdf`                 | Iteration Report 1                 |
 | `docs/use_case_diagram/`                                       | Use case diagram                   |
 | `docs/sequence_diagram/`                                       | Sequence diagrams (SQD-1 … SQD-7)  |
 | `docs/activity_diagram/`                                       | Activity diagrams (AD-1 … AD-6)    |
@@ -36,13 +56,19 @@ All specs, reports, and diagrams live in [`docs/`](docs):
 
 ## Stack
 
-| Service        | Description                 | URL                     |
-| -------------- | --------------------------- | ----------------------- |
-| `nextjs`       | Frontend, `npm run dev`     | <http://localhost:3000> |
-| `fastapi`      | FastAPI API, `fastapi dev`  | <http://localhost:8000> |
-| `postgres`     | PostgreSQL 17, in a volume  | `localhost:5433`        |
+| Compose service | Role                                 | Port |
+| --------------- | ------------------------------------ | ---- |
+| `nextjs`        | Next.js frontend                     | 3000 |
+| `fastapi`       | FastAPI backend                      | 8000 |
+| `postgres`      | PostgreSQL 17, in a volume (dev)     | 5433 |
+| `tunnel`        | Cloudflare Tunnel (prod, optional)   | —    |
 
-API docs are served by FastAPI at <http://localhost:8000/docs>
+API docs are served at `http://localhost:8000/docs`.
+
+| Compose file               | Purpose                                                      |
+| -------------------------- | ------------------------------------------------------------ |
+| `docker-compose.dev.yaml`  | Local development — source bind-mounted, hot reload          |
+| `docker-compose.prod.yaml` | Production — built images, multi-worker server, auto-restart |
 
 The database is part of the stack rather than a hosted service, so there is
 nothing to sign up for and no keys to hand around. The backend owns both
@@ -51,32 +77,24 @@ at `POST /auth/login` returns a JWT the frontend sends as a bearer token.
 
 ## Prerequisites
 
-- [Docker Engine](https://docs.docker.com/engine/install/) 20.10+
-- Docker Compose v2 (bundled with Docker Desktop; on Linux install the `docker-compose-plugin`)
+- [Docker Engine](https://docs.docker.com/engine/install/) 20.10+ with Docker Compose v2 (`docker compose`, with a space)
+
+Node.js and Python are **not** needed on your machine — both run in containers.
 
 ```bash
 docker --version
 docker compose version
 ```
 
-You do **not** need Node.js or Python installed locally — both run inside containers.
-
-## Setup
+## 1. Clone and configure
 
 ```bash
 git clone https://github.com/PathadonAougsk/ISP.git
 cd ISP
-```
-
-### Create `.env`
-
-This step is required. There is **one** env file for the whole repo, `source/.env`, and both services read it. It is gitignored, so a fresh clone won't have it and compose will refuse to start without it.
-
-```bash
 cp source/.env.sample source/.env
 ```
 
-Then fill in the real values. `source/.env.sample` lists every key that is used:
+Fill in `source/.env`. It is the **only** env file; both services and both compose files read it. It's gitignored, so a fresh clone won't have one.
 
 | Key                         | Used by           | Notes                                                           |
 | --------------------------- | ----------------- | --------------------------------------------------------------- |
@@ -86,7 +104,10 @@ Then fill in the real values. `source/.env.sample` lists every key that is used:
 | `DATABASE_URL`              | backend           | `postgresql+asyncpg://…`; host `postgres` in compose             |
 | `JWT_SECRET`                | backend           | Signs the access tokens. 32+ chars: `openssl rand -hex 32`      |
 | `ACCESS_TOKEN_TTL_MINUTES`  | backend, optional | How long a login lasts. Default 720                             |
-| `NEXT_PUBLIC_API_URL`       | frontend          | `http://localhost:8000` locally                                 |
+| `NEXT_PUBLIC_API_URL`       | frontend          | `http://localhost:8000` locally; your public API URL in prod    |
+| `CORS_ORIGINS`              | backend (prod)    | Comma-separated allowed origins, default `http://localhost:3000` |
+| `WEB_CONCURRENCY`           | backend (prod)    | Server workers, default `2`                                     |
+| `TUNNEL_TOKEN`              | tunnel (prod)     | Cloudflare Tunnel token, only with `--profile tunnel`           |
 
 The three `POSTGRES_*` values only take effect the first time the container
 starts, because that is when it creates the database. Changing them later
@@ -101,18 +122,16 @@ How each side picks the file up:
 - **Backend** — `load_dotenv()` walks up from `source/backend/app/` and finds `source/.env`.
 - **Docker / CI** — compose passes `env_file: "./source/.env"` to both services; real environment variables always win over the file.
 
-## Running
+## 2. Run locally (development)
 
 ```bash
-docker compose up -d
+docker compose -f docker-compose.dev.yaml --env-file source/.env up -d
 ```
 
-`-d` runs detached, so the containers stay up after you close the terminal. The first run builds both images and will take a few minutes.
-
-Once it's up:
+The first run builds both images and takes a few minutes. Then open:
 
 - Frontend: <http://localhost:3000>
-- Backend: <http://localhost:8000>
+- Backend: <http://localhost:8000> (health check at `/health`)
 - Swagger UI: <http://localhost:8000/docs>
 
 The backend creates any missing tables when it starts, so a brand new volume
@@ -137,63 +156,79 @@ back to an active Lab Owner — the way back in if nobody can sign in.
 
 ### When to rebuild
 
-Both services bind-mount your source code into the container, so editing files on your machine hot-reloads inside the container. No rebuild needed for normal code changes.
-
-Rebuild when you change a `Dockerfile`, `package.json`, or the Python dependencies:
+Source folders are bind-mounted, so saving a file hot-reloads inside the container. Rebuild only after changing a `Dockerfile*`, `package.json`, or Python dependencies:
 
 ```bash
-docker compose up -d --build
+docker compose -f docker-compose.dev.yaml --env-file source/.env up -d --build
 ```
 
-## Common commands
+Handy commands (run `export COMPOSE_FILE=docker-compose.dev.yaml` once so you can drop the `-f`):
 
 ```bash
-# Status of both services
-docker compose ps
-
-# Follow logs from everything
-docker compose logs -f
-
-# Follow logs from one service
-docker compose logs -f fastapi
-docker compose logs -f nextjs
-
-# Shell into a container
-docker compose exec fastapi bash
-docker compose exec nextjs sh
-
-# A psql prompt on the database
-docker compose exec postgres psql -U postgres -d isp
-
-# Backend tests. They run against the live database and clean up after
-# themselves; from your machine, point DATABASE_URL at localhost:5433 rather
-# than the compose hostname.
-docker compose exec fastapi uv run pytest
-
-# Install a new npm package (inside the container, so it lands in the right node_modules)
+docker compose ps                         # status
+docker compose logs -f                    # all logs
+docker compose logs -f fastapi            # one service
+docker compose exec fastapi bash          # shell into the backend
+docker compose exec nextjs sh             # shell into the frontend
 docker compose exec nextjs npm install <package>
+docker compose exec fastapi uv run pytest # backend tests (live DB, cleans up)
+docker compose exec postgres psql -U postgres -d isp   # psql prompt
+docker compose down                       # stop and remove
+docker compose down -v                    # also clear volumes, database included
+```
 
-# Restart one service
-docker compose restart fastapi
+## 3. Run in production
 
-# Stop
-docker compose stop
+`docker-compose.prod.yaml` builds a Next.js standalone server and runs the backend with `fastapi run` on several workers as a non-root user. Both have health checks and restart automatically.
 
-# Stop and remove containers + network
-docker compose down
+```bash
+# on the server
+git clone https://github.com/PathadonAougsk/ISP.git
+cd ISP
+cp source/.env.sample source/.env   # then fill in production values
 
-# Nuke volumes too (clears the node_modules cache)
-docker compose down -v
+docker compose -f docker-compose.prod.yaml --env-file source/.env up -d --build
+```
+
+`--env-file source/.env` is required: the `NEXT_PUBLIC_*` values are baked into the frontend at **build** time, so compose must read them before building. After changing any `NEXT_PUBLIC_*` value, rebuild with `--build`.
+
+Check that it's healthy:
+
+```bash
+docker compose -f docker-compose.prod.yaml ps
+curl -f http://localhost:8000/health
+```
+
+### Exposing it with Cloudflare Tunnel (optional)
+
+The `tunnel` service publishes the app without opening inbound ports, which works even behind NAT/CGNAT.
+
+1. Create a Named Tunnel in Cloudflare Zero Trust → Networks → Tunnels, and put its token in `source/.env` as `TUNNEL_TOKEN`.
+2. Add public hostnames to the tunnel that point at the compose service names:
+   - `app.<your-domain>` → `http://nextjs:3000`
+   - `api.<your-domain>` → `http://fastapi:8000`
+3. In `source/.env`, set `NEXT_PUBLIC_API_URL=https://api.<your-domain>` and `CORS_ORIGINS=https://app.<your-domain>`.
+4. Start everything with the tunnel profile:
+
+```bash
+docker compose -f docker-compose.prod.yaml --env-file source/.env --profile tunnel up -d --build
+```
+
+### Updating production
+
+```bash
+git pull
+docker compose -f docker-compose.prod.yaml --env-file source/.env --profile tunnel up -d --build
 ```
 
 ## How the services talk to each other
 
-- **From your browser** (client-side fetches in the frontend): use `http://localhost:8000`.
-- **From inside the frontend container** (SSR, API routes, server components): use `http://fastapi:8000`. Compose puts both containers on the same network and resolves service names as hostnames. `localhost` inside a container means that container, not your machine.
+- **From the browser** (client-side fetches): use `NEXT_PUBLIC_API_URL` — `http://localhost:8000` locally.
+- **From inside a container** (SSR, server components): use `http://fastapi:8000`. Compose resolves service names as hostnames; `localhost` inside a container means that container.
 
 ## Troubleshooting
 
-**`env file ./source/.env not found`** — you skipped the setup step above. Create the file.
+**`env file ./source/.env not found`** or **`set in source/.env`**: you skipped step 1, or left out `--env-file source/.env`.
 
 **Port 3000 or 8000 already in use** — something else is bound to that port. Stop it, or change the host side of the mapping in `docker-compose.dev.yaml` (the left number in `"3000:3000"`).
 
@@ -206,11 +241,11 @@ compose network. On Linux the usual culprit is the system service —
 `systemctl status postgresql` tells you, and `sudo systemctl disable --now
 postgresql` frees 5432 for good if you would rather have it.
 
-**Frontend can't reach the backend** — check whether the call runs in the browser or on the server, and use the matching hostname from the section above.
+**Frontend can't reach the backend**: check whether the call runs in the browser or on the server, and use the matching hostname above. In prod, also check `CORS_ORIGINS`.
 
-**`Cannot find module` in the frontend after adding a dependency** — the `/app/node_modules` anonymous volume is masking your host folder. Run the install inside the container, or rebuild with `docker compose up -d --build`.
+**Changed a `NEXT_PUBLIC_*` value but prod didn't pick it up**: those are build-time values; rerun with `--build`.
 
-**Backend not reloading on save** — confirm the file you edited is under `./backend`, which is mounted to `/Backend` in the container. Files outside that path aren't synced.
+**`Cannot find module` after adding a frontend dependency (dev)**: install it inside the container, or rebuild with `--build`.
 
 **`JWT_SECRET is only N characters`** — the backend refuses to start with a
 signing key short enough to guess. Put a real one in `source/.env`:
@@ -222,10 +257,9 @@ the Lab Owner; see *Create the first login*.
 **Everyone is signed out after a restart** — tokens are signed with
 `JWT_SECRET`, so changing it invalidates every token already handed out.
 
-**Something is deeply stuck** — `docker compose down -v && docker compose up -d --build` gives a clean slate. Note that `-v` also drops the database volume, so the accounts go with it and the Lab Owner has to be created again.
+**Something is deeply stuck** — `docker compose -f docker-compose.dev.yaml down -v`, then bring it back up with `--build`. Note that `-v` also drops the database volume, so the accounts go with it and the Lab Owner has to be created again.
 
 ## Notes
 
-- Compose v2 is `docker compose` (space). The hyphenated `docker-compose` v1 is end-of-life.
-- This compose file is development-only: `npm run dev` and `fastapi dev` are not suitable for production. A production setup would need a separate compose file with built assets and a proper ASGI server config.
-- `source/.env.sample` is committed (an exception to the `.env*` gitignore rule) and lists every required key with dummy values. Keep it in sync when you add a key.
+- `source/.env.sample` is committed (an exception to the `.env*` gitignore rule). Keep it in sync when you add a key.
+- CI builds both Docker images on every pull request to `main` (`.github/workflows/Docker-build-check.yml`).

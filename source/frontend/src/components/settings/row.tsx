@@ -4,6 +4,7 @@ import { useState } from "react";
 
 import { maskEmail } from "@/lib/format";
 import Button from "@/components/ui/button";
+import { EyeIcon } from "@/components/ui/icon";
 import { CARD } from "./settings-style";
 
 export function EditButton({
@@ -53,9 +54,11 @@ export default function Row({
           <button
             type="button"
             onClick={() => setShown((s) => !s)}
-            className="-ml-2 text-(--primary-color-deep) hover:underline"
+            className="-ml-1 flex size-5 items-center justify-center"
+            aria-label={shown ? `Hide ${label}` : `Show ${label}`}
+            aria-pressed={shown}
           >
-            {shown ? "Hide" : "Show"}
+            <EyeIcon shown={shown} />
           </button>
         )}
         <div className="flex w-25 justify-end">{action}</div>

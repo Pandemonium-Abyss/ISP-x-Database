@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { getThaiDateKey } from "@/lib/format";
 import type { CategoryMap } from "@/lib/category";
 import Icon from "@/components/ui/icon";
@@ -8,10 +9,10 @@ import Toggle from "@/components/ui/toggle";
 import {
   dueBucketColor,
   dueBucketMeta,
-  getDueBucketLimits,
   type BucketCounts,
   type DashboardItem,
   type DashboardView,
+  type DueBucketLimits,
 } from "@/components/dashboard/dashboard-data";
 
 // Which list the dashboard shows, and whose items are in it.
@@ -67,15 +68,16 @@ export function ScopeToggle({
 export function Summary({
   items,
   counts,
+  limits,
   loading,
   view,
 }: {
   items: DashboardItem[];
   counts: BucketCounts;
+  limits: DueBucketLimits;
   loading: boolean;
   view: DashboardView;
 }) {
-  const limits = getDueBucketLimits(new Date());
   // compare day on Thai clock
   const today = getThaiDateKey(limits.now);
 
@@ -207,6 +209,11 @@ export default function Overview({
 }) {
   const isTicket = view === "ticket";
   const noun = isTicket ? "tickets" : "tasks";
+  const [collapsed, setCollapsed] = useState<Record<DashboardView, boolean>>({
+    task: false,
+    ticket: false,
+  });
+  const isCollapsed = collapsed[view];
 
   const categoryIds = Object.keys(categoryCounts)
     .map(Number)
@@ -215,74 +222,109 @@ export default function Overview({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
       <div className="flex h-8 items-center gap-2 rounded-[20px] bg-(--primary-color-2) px-2">
-        <Icon src="/header_donut_dark_green.svg" className="size-4" />
+        <button
+          type="button"
+          onClick={() =>
+            setCollapsed((previous) => ({
+              ...previous,
+              [view]: !previous[view],
+            }))
+          }
+          aria-label={
+            isCollapsed ? `Show ${noun} overview` : `Hide ${noun} overview`
+          }
+          aria-pressed={isCollapsed}
+          className="flex size-4 shrink-0 items-center justify-center"
+        >
+          <Icon
+            src={
+              isCollapsed
+                ? "/header_donut_gray.svg"
+                : "/header_donut_dark_green.svg"
+            }
+            className={`size-4 transition-transform duration-300 ease-in-out ${
+              isCollapsed ? "rotate-180" : ""
+            }`}
+          />
+        </button>
         <h1 className="text-base font-bold text-white">
           {isTicket ? "Ticket Overview" : "Task Overview"}
         </h1>
       </div>
 
-      {loadingTasks ? (
-        <ListMessage>Loading {noun}...</ListMessage>
-      ) : errorTasks ? (
-        <ListMessage>Failed to load {noun}</ListMessage>
-      ) : errorCategories ? (
-        <ListMessage>Failed to load categories</ListMessage>
-      ) : categoryIds.length === 0 ? (
-        <p className="flex flex-1 items-center justify-center py-4 text-center text-base font-medium text-gray-500">
-          {isTicket
-            ? "No tickets! Smooth sailing ahead, so enjoy the calm."
-            : "All tasks are done! Time to enjoy a well-earned break."}
-        </p>
-      ) : (
-        <div className="min-h-0 max-h-120 flex-1 space-y-2 overflow-y-auto rounded-2xl scrollbar-thin">
-          {categoryIds.map((id) => {
-            const counts = categoryCounts[id];
-            const total = Object.values(counts).reduce((sum, n) => sum + n, 0);
-            const visibleBuckets = dueBucketMeta.filter(
-              (b) => counts[b.key] > 0,
-            );
+      <div
+        className={`grid min-h-0 overflow-hidden transition-[grid-template-rows] duration-300 ease-in-out ${
+          isCollapsed ? "grid-rows-[0fr]" : "grid-rows-[1fr]"
+        }`}
+      >
+        <div className="min-h-0 overflow-hidden">
+          {loadingTasks ? (
+            <ListMessage>Loading {noun}...</ListMessage>
+          ) : errorTasks ? (
+            <ListMessage>Failed to load {noun}</ListMessage>
+          ) : errorCategories ? (
+            <ListMessage>Failed to load categories</ListMessage>
+          ) : categoryIds.length === 0 ? (
+            <p className="flex flex-1 items-center justify-center py-4 text-center text-base font-medium text-gray-500">
+              {isTicket
+                ? "No tickets! Smooth sailing ahead, so enjoy the calm."
+                : "All tasks are done! Time to enjoy a well-earned break."}
+            </p>
+          ) : (
+            <div className="min-h-0 max-h-120 flex-1 space-y-2 overflow-y-auto rounded-2xl scrollbar-thin">
+              {categoryIds.map((id) => {
+                const counts = categoryCounts[id];
+                const total = Object.values(counts).reduce(
+                  (sum, n) => sum + n,
+                  0,
+                );
+                const visibleBuckets = dueBucketMeta.filter(
+                  (b) => counts[b.key] > 0,
+                );
 
-            return (
-              <div key={id} className="flex rounded-2xl bg-white px-2 py-2">
-                <div className="flex min-w-0 flex-1 flex-col gap-1">
-                  <div className="flex w-full flex-wrap items-center gap-x-4 gap-y-1">
-                    <p className="max-w-full shrink-0 truncate text-base font-bold text-black">
-                      {categoryMap[id] ?? "-"}
-                    </p>
+                return (
+                  <div key={id} className="flex rounded-2xl bg-white px-2 py-2">
+                    <div className="flex min-w-0 flex-1 flex-col gap-1">
+                      <div className="flex w-full flex-wrap items-center gap-x-4 gap-y-1">
+                        <p className="max-w-full shrink-0 truncate text-base font-bold text-black">
+                          {categoryMap[id] ?? "-"}
+                        </p>
 
-                    <div className="flex shrink-0 items-center gap-4">
-                      {visibleBuckets.map((b) => (
-                        <div key={b.key} className="flex items-center gap-1">
-                          <span
-                            className={`size-4 shrink-0 rounded-full ${dueBucketColor[b.key]}`}
-                          />
-                          <span className="text-base font-medium text-black">
-                            {counts[b.key]}
-                          </span>
+                        <div className="flex shrink-0 items-center gap-4">
+                          {visibleBuckets.map((b) => (
+                            <div key={b.key} className="flex items-center gap-1">
+                              <span
+                                className={`size-4 shrink-0 rounded-full ${dueBucketColor[b.key]}`}
+                              />
+                              <span className="text-base font-medium text-black">
+                                {counts[b.key]}
+                              </span>
+                            </div>
+                          ))}
                         </div>
-                      ))}
+                      </div>
+
+                      <div className="flex h-4 w-full overflow-hidden rounded-full bg-gray-200">
+                        {dueBucketMeta.map((b) =>
+                          counts[b.key] > 0 ? (
+                            <div
+                              key={b.key}
+                              className={dueBucketColor[b.key]}
+                              style={{
+                                width: `${(counts[b.key] / total) * 100}%`,
+                              }}
+                            />
+                          ) : null,
+                        )}
+                      </div>
                     </div>
                   </div>
-
-                  <div className="flex h-4 w-full overflow-hidden rounded-full bg-gray-200">
-                    {dueBucketMeta.map((b) =>
-                      counts[b.key] > 0 ? (
-                        <div
-                          key={b.key}
-                          className={dueBucketColor[b.key]}
-                          style={{
-                            width: `${(counts[b.key] / total) * 100}%`,
-                          }}
-                        />
-                      ) : null,
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+                );
+              })}
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }

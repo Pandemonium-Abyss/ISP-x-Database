@@ -1,6 +1,12 @@
 "use client";
 
-import type { ReactNode, RefObject } from "react";
+import {
+  createContext,
+  useContext,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import type { CategoryMap } from "@/lib/category";
 import type { Task } from "@/lib/task";
 import type { Ticket } from "@/lib/ticket";
@@ -25,6 +31,83 @@ import {
 
 // full class string, tailwind need to see it
 const GRID = "grid-cols-[2fr_1.25fr_1.25fr_minmax(120px,1fr)]";
+type PanelName = "task" | "ticket";
+
+const DashboardListLayoutContext = createContext<{
+  setCollapsed: (panel: PanelName, collapsed: boolean) => void;
+} | null>(null);
+
+type SortKey = "name" | "created_by" | "category" | "status" | "due_date";
+type SortDirection = "asc" | "desc";
+type SortState = { key: SortKey; direction: SortDirection };
+
+function compareValues(
+  first: string | null,
+  second: string | null,
+  direction: SortDirection,
+  date = false,
+) {
+  if (date) {
+    if (first === null && second === null) return 0;
+    if (first === null) return 1;
+    if (second === null) return -1;
+
+    const result = Date.parse(first) - Date.parse(second);
+    return direction === "asc" ? result : -result;
+  }
+
+  const result = (first ?? "").localeCompare(second ?? "", undefined, {
+    sensitivity: "base",
+  });
+  return direction === "asc" ? result : -result;
+}
+
+// Due date sort by time (empty last), other keys by text. A key the list
+// does not have (status for tasks, created_by for tickets) give null = no move.
+function sortItems<T extends { due_date: string | null }>(
+  items: T[],
+  sort: SortState,
+  textOf: (item: T, key: SortKey) => string | null,
+) {
+  const byDate = sort.key === "due_date";
+
+  return [...items].sort((first, second) =>
+    byDate
+      ? compareValues(first.due_date, second.due_date, sort.direction, true)
+      : compareValues(
+          textOf(first, sort.key),
+          textOf(second, sort.key),
+          sort.direction,
+        ),
+  );
+}
+
+function sortTasks(
+  tasks: Task[],
+  sort: SortState,
+  categoryMap: CategoryMap,
+  usernames: Record<string, string>,
+) {
+  return sortItems(tasks, sort, (task, key) => {
+    if (key === "name") return task.name;
+    if (key === "created_by") return usernames[task.created_by] ?? "-";
+    if (key === "category") return categoryMap[task.category_id] ?? "-";
+    return null;
+  });
+}
+
+function sortTickets(
+  tickets: Ticket[],
+  sort: SortState,
+  categoryMap: CategoryMap,
+) {
+  return sortItems(tickets, sort, (ticket, key) => {
+    if (key === "name") return ticket.name;
+    if (key === "status") return ticketStatusText[ticket.status];
+    if (key === "category") return categoryMap[ticket.category_id] ?? "-";
+    return null;
+  });
+}
 
 // same props for every section
 const sectionProps = (group: GroupState) => ({
@@ -64,38 +147,68 @@ function ListSection({
 
 // column header + scrolling sections. shows a message when there is nothing
 function ListPanel({
+  panel,
   titles,
   hasOverflow,
   listRef,
   empty,
   message,
   children,
+  sortKeys,
+  sort,
+  onSort,
 }: {
+  panel: PanelName;
   titles: string[];
   hasOverflow: boolean;
   listRef: RefObject<HTMLDivElement | null>;
   empty: boolean;
   message: ReactNode;
   children: ReactNode;
+  sortKeys: SortKey[];
+  sort: SortState;
+  onSort: (key: SortKey) => void;
 }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const layout = useContext(DashboardListLayoutContext);
+
   return (
     <div className="flex min-h-0 flex-col gap-2">
       <TableHeader
         titles={titles}
         gridClassName={GRID}
         hasOverflow={hasOverflow}
+        onIconClick={() => {
+          const next = !collapsed;
+          setCollapsed(next);
+          layout?.setCollapsed(panel, next);
+        }}
+        iconLabel={collapsed ? "Show list section" : "Hide list section"}
+        iconPressed={collapsed}
+        sortKeys={sortKeys}
+        sortKey={sort.key}
+        sortDirection={sort.direction}
+        onSort={onSort}
       />
 
-      {empty ? (
-        <ListMessage>{message}</ListMessage>
-      ) : (
-        <div
-          ref={listRef}
-          className="flex min-h-0 max-h-120 flex-col gap-2 overflow-y-auto scrollbar-thin"
-        >
-          {children}
+      <div
+        className={`grid min-h-0 flex-1 overflow-hidden transition-[grid-template-rows] duration-300 ease-in-out ${
+          collapsed ? "grid-rows-[0fr]" : "grid-rows-[1fr]"
+        }`}
+      >
+        <div className="flex min-h-0 flex-col overflow-hidden">
+          {empty ? (
+            <ListMessage>{message}</ListMessage>
+          ) : (
+            <div
+              ref={listRef}
+              className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto scrollbar-thin"
+            >
+              {children}
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -119,8 +232,20 @@ export function TaskList({
 
   const hasMyTasks = myTasks.items.length > 0;
   const hasOtherTasks = otherTasks.items.length > 0;
+  const [sort, setSort] = useState<SortState>({
+    key: "due_date",
+    direction: "asc",
+  });
 
   const { listRef, hasOverflow } = useListOverflow();
+
+  function onSort(key: SortKey) {
+    setSort((previous) => ({
+      key,
+      direction:
+        previous.key === key && previous.direction === "asc" ? "desc" : "asc",
+    }));
+  }
 
   const renderTask = (task: Task) => (
     <TableRow
@@ -146,7 +271,11 @@ export function TaskList({
 
   return (
     <ListPanel
-      titles={["Task Name", "Created by", "Category", "Duedate"]}
+      panel="task"
+      titles={["Task Name", "Created by", "Category", "Due Date"]}
+      sortKeys={["name", "created_by", "category", "due_date"]}
+      sort={sort}
+      onSort={onSort}
       hasOverflow={hasOverflow}
       listRef={listRef}
       empty={!hasMyTasks && !hasOtherTasks}
@@ -160,13 +289,17 @@ export function TaskList({
     >
       {hasMyTasks && (
         <ListSection title="My tasks" {...sectionProps(myTasks)}>
-          {myTasks.items.map(renderTask)}
+          {sortTasks(myTasks.items, sort, categoryMap, usernames).map(
+            renderTask,
+          )}
         </ListSection>
       )}
 
       {hasOtherTasks && (
         <ListSection title="Others' tasks" {...sectionProps(otherTasks)}>
-          {otherTasks.items.map(renderTask)}
+          {sortTasks(otherTasks.items, sort, categoryMap, usernames).map(
+            renderTask,
+          )}
         </ListSection>
       )}
 
@@ -205,10 +338,22 @@ export function TicketList({
   const now = new Date();
 
   const sections = [
-    { title: "My rejected tickets", group: myRejectedTickets },
-    { title: "My pending tickets", group: myPendingTickets },
-    { title: "Others' rejected tickets", group: otherRejectedTickets },
-    { title: "Others' pending tickets", group: otherPendingTickets },
+    {
+      title: "My rejected tickets",
+      status: "rejected",
+      group: myRejectedTickets,
+    },
+    { title: "My pending tickets", status: "pending", group: myPendingTickets },
+    {
+      title: "Others' rejected tickets",
+      status: "rejected",
+      group: otherRejectedTickets,
+    },
+    {
+      title: "Others' pending tickets",
+      status: "pending",
+      group: otherPendingTickets,
+    },
   ];
 
   const loadingMine = myRejectedTickets.loading || myPendingTickets.loading;
@@ -216,8 +361,30 @@ export function TicketList({
     otherRejectedTickets.loading || otherPendingTickets.loading;
   const errorMine = myRejectedTickets.error || myPendingTickets.error;
   const errorOthers = otherRejectedTickets.error || otherPendingTickets.error;
+  const [sort, setSort] = useState<SortState>({
+    key: "due_date",
+    direction: "asc",
+  });
 
   const { listRef, hasOverflow } = useListOverflow();
+
+  function onSort(key: SortKey) {
+    setSort((previous) => ({
+      key,
+      direction:
+        previous.key === key && previous.direction === "asc" ? "desc" : "asc",
+    }));
+  }
+
+  const orderedSections =
+    sort.key === "status"
+      ? [...sections].sort((first, second) => {
+          const firstRank = first.status === "pending" ? 0 : 1;
+          const secondRank = second.status === "pending" ? 0 : 1;
+          const result = firstRank - secondRank;
+          return sort.direction === "asc" ? result : -result;
+        })
+      : sections;
 
   const renderTicket = (ticket: Ticket) => {
     const overdue = isMissingItem(ticket, ["pending", "rejected"], now);
@@ -249,7 +416,11 @@ export function TicketList({
 
   return (
     <ListPanel
-      titles={["Ticket Name", "Status", "Category", "Duedate"]}
+      panel="ticket"
+      titles={["Ticket Name", "Status", "Category", "Due Date"]}
+      sortKeys={["name", "status", "category", "due_date"]}
+      sort={sort}
+      onSort={onSort}
       hasOverflow={hasOverflow}
       listRef={listRef}
       empty={sections.every(({ group }) => group.items.length === 0)}
@@ -261,11 +432,11 @@ export function TicketList({
             : "Looks like everything's pretty peaceful around here. Yay!"
       }
     >
-      {sections.map(
+      {orderedSections.map(
         ({ title, group }) =>
           group.items.length > 0 && (
             <ListSection key={title} title={title} {...sectionProps(group)}>
-              {group.items.map(renderTicket)}
+              {sortTickets(group.items, sort, categoryMap).map(renderTicket)}
             </ListSection>
           ),
       )}
@@ -287,10 +458,38 @@ export function TicketList({
 
 // layout only, the two lists are passed as children
 export default function TaskTicketList({ children }: { children: ReactNode }) {
+  const [collapsed, setCollapsed] = useState({
+    task: false,
+    ticket: false,
+  });
+  const taskCollapsed = collapsed.task;
+  const ticketCollapsed = collapsed.ticket;
+  const gridTemplateRows =
+    taskCollapsed && ticketCollapsed
+      ? "auto auto"
+      : taskCollapsed
+        ? "auto minmax(0, 1fr)"
+        : ticketCollapsed
+          ? "minmax(0, 1fr) auto"
+          : "minmax(0, 1fr) minmax(0, 1fr)";
+
   return (
     <div className="relative flex min-h-[80vh] min-w-0 flex-1 shrink-0 min-[1100px]:min-h-0">
-      <div className="absolute inset-0 grid grid-rows-[minmax(0,auto)_minmax(0,auto)] content-start gap-2 rounded-t-[30px] rounded-b-none bg-(--panel-bg) p-3">
-        {children}
+      <div
+        className="absolute inset-0 grid min-h-0 content-start gap-2 overflow-hidden rounded-t-[30px] rounded-b-none bg-(--panel-bg) p-3 transition-[grid-template-rows] duration-300 ease-in-out"
+        style={{ gridTemplateRows }}
+      >
+        <DashboardListLayoutContext.Provider
+          value={{
+            setCollapsed: (panel, isCollapsed) =>
+              setCollapsed((previous) => ({
+                ...previous,
+                [panel]: isCollapsed,
+              })),
+          }}
+        >
+          {children}
+        </DashboardListLayoutContext.Provider>
       </div>
     </div>
   );

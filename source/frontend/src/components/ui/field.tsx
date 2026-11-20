@@ -108,7 +108,7 @@ function withLabel(
 
 // Character counter color
 function getCounterColor(value: string, maxLength: number) {
-  const percentage = (value.length / maxLength) * 100;
+  const percentage = (Array.from(value).length / maxLength) * 100;
 
   if (percentage <= 33) return "text-green-500";
   if (percentage <= 66) return "text-yellow-500";
@@ -133,9 +133,15 @@ function CharacterCounter({
     <span
       className={`text-xs font-normal ${getCounterColor(value, maxLength)}`}
     >
-      {value.length}/{maxLength}
+      {Array.from(value).length}/{maxLength}
     </span>
   );
+}
+
+function limitCharacters(value: string, maxLength?: number): string {
+  return maxLength === undefined
+    ? value
+    : Array.from(value).slice(0, maxLength).join("");
 }
 
 // Shared props
@@ -189,7 +195,9 @@ export function TextInput({
   const { controlClass, wrap } = withLabel(label, className, look);
 
   const invalid =
-    value.length > 0 && maxLength !== undefined && value.length >= maxLength;
+    value.length > 0 &&
+    maxLength !== undefined &&
+    Array.from(value).length >= maxLength;
 
   const counter =
     !readOnly && showCounter ? (
@@ -200,11 +208,12 @@ export function TextInput({
     <input
       type={type}
       value={value}
-      onChange={(event) => onChange?.(event.target.value)}
+      onChange={(event) =>
+        onChange?.(limitCharacters(event.target.value, maxLength))
+      }
       {...props}
       readOnly={readOnly}
       tabIndex={readOnly ? -1 : undefined}
-      maxLength={maxLength}
       aria-invalid={invalid}
       className={`${INPUT_LOOK[look]} ${controlClass}`}
     />
@@ -227,7 +236,7 @@ export function TextInput({
   );
 
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex w-full flex-col gap-1">
       {wrap(control, inlineCounter ? null : counter)}
       {label === undefined && !inlineCounter && counter}
     </div>
@@ -255,7 +264,9 @@ export function TextArea({
   );
 
   const invalid =
-    value.length > 0 && maxLength !== undefined && value.length >= maxLength;
+    value.length > 0 &&
+    maxLength !== undefined &&
+    Array.from(value).length >= maxLength;
 
   const counter =
     !readOnly && showCounter ? (
@@ -265,11 +276,12 @@ export function TextArea({
   const textarea = (
     <textarea
       value={value}
-      onChange={(event) => onChange?.(event.target.value)}
+      onChange={(event) =>
+        onChange?.(limitCharacters(event.target.value, maxLength))
+      }
       {...props}
       readOnly={readOnly}
       tabIndex={readOnly ? -1 : undefined}
-      maxLength={maxLength}
       aria-invalid={invalid}
       className={`${INPUT_LOOK[look]} min-h-24 flex-1 resize-none scrollbar-thin ${controlClass}`}
     />
@@ -293,7 +305,7 @@ export function TextArea({
 
   return (
     <div
-      className={`flex flex-col gap-1 ${
+      className={`flex w-full flex-col gap-1 ${
         label !== undefined || grow ? "min-h-0 flex-1" : ""
       }`}
     >
@@ -311,7 +323,7 @@ export type SelectOption = {
 };
 
 // Close dropdown when clicking outside or pressing Escape
-function useCloseOnOutside(
+export function useCloseOnOutside(
   open: boolean,
   setOpen: (open: boolean) => void,
   ref: React.RefObject<HTMLDivElement | null>,
@@ -327,6 +339,8 @@ function useCloseOnOutside(
 
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        // stop here, so modal behind (window listener) stay open
+        event.stopPropagation();
         setOpen(false);
       }
     };
@@ -406,19 +420,25 @@ export function Select({
 
       {open && (
         <div className="absolute top-full left-0 z-9999 mt-2 max-h-60 w-max min-w-full overflow-y-auto overflow-x-hidden scrollbar-none rounded-2xl border border-gray-200 bg-white text-black">
-          {rows.map((row, index) => (
-            <button
-              key={row.value}
-              type="button"
-              title={row.title}
-              onClick={() => pick(row.value)}
-              className={`block w-full transform-none! cursor-pointer px-3 py-2 text-left text-sm font-normal whitespace-nowrap hover:bg-gray-200 ${
-                index === 0 && firstItem ? "text-gray-600" : "text-black"
-              }`}
-            >
-              {row.label}
-            </button>
-          ))}
+          {rows.length === 0 ? (
+            <div className="px-3 py-2 text-sm text-gray-500">
+              No options available
+            </div>
+          ) : (
+            rows.map((row, index) => (
+              <button
+                key={row.value}
+                type="button"
+                title={row.title}
+                onClick={() => pick(row.value)}
+                className={`block w-full transform-none! cursor-pointer px-3 py-2 text-left text-sm font-normal whitespace-nowrap hover:bg-gray-200 ${
+                  index === 0 && firstItem ? "text-gray-600" : "text-black"
+                }`}
+              >
+                {row.label}
+              </button>
+            ))
+          )}
         </div>
       )}
     </div>,

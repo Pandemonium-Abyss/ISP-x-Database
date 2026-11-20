@@ -11,9 +11,12 @@ import {
 import Button from "@/components/ui/button";
 import { TextInput } from "@/components/ui/field";
 import Row, { EditButton } from "./row";
-import { ERROR, MUTED, TITLE } from "./settings-style";
-
-const MIN_PASSWORD = 8;
+import { ERROR, MUTED } from "./settings-style";
+import {
+  MIN_PASSWORD,
+  limitPasswordBytes,
+  passwordCharacterLength,
+} from "@/lib/password";
 
 // the three things you can change about yourself, one open at a time
 type Editable = "username" | "email" | "password";
@@ -179,7 +182,7 @@ export default function AccountPanel({
     e.preventDefault();
     if (!account || !currentPassword) return;
 
-    if (newPassword.length < MIN_PASSWORD) {
+    if (passwordCharacterLength(newPassword) < MIN_PASSWORD) {
       say("password", {
         error: `The new password must be at least ${MIN_PASSWORD} characters long.`,
         done: null,
@@ -219,12 +222,18 @@ export default function AccountPanel({
     />
   );
 
-  const missing = MIN_PASSWORD - newPassword.length;
+  const missing = MIN_PASSWORD - passwordCharacterLength(newPassword);
 
   return (
     <>
       <section className="flex flex-col gap-4">
-        <h1 className={TITLE}>Account Information</h1>
+        <div className="flex flex-col gap-1.5">
+          <p className="font-semibold">Profile</p>
+          <p className={MUTED}>
+            Your account information. You can change your username, and email
+            address here.
+          </p>
+        </div>
 
         <Row
           label="Username"
@@ -247,7 +256,7 @@ export default function AccountPanel({
                   onChange={draft("username", setUsername)}
                   disabled={busy}
                   maxLength={30}
-                  placeholder="Enter your username"
+                  placeholder="Enter a username"
                   autoComplete="username"
                 />
               </div>
@@ -285,7 +294,7 @@ export default function AccountPanel({
                   value={email}
                   onChange={draft("email", setEmail)}
                   disabled={busy}
-                  placeholder="you@chula.th"
+                  placeholder="user@example.com"
                   maxLength={255}
                   autoComplete="email"
                 />
@@ -314,7 +323,12 @@ export default function AccountPanel({
       <hr className="my-10 border-gray-200" />
 
       <section className="flex flex-col gap-4">
-        <h1 className={TITLE}>Password and Security</h1>
+        <div className="flex flex-col gap-1.5">
+          <p className="font-semibold">Password and Security</p>
+          <p className={MUTED}>
+            Your password is used to sign in to your account.
+          </p>
+        </div>
 
         <Row label="Password" action={editAction("password")}>
           {open === "password" && (
@@ -324,8 +338,8 @@ export default function AccountPanel({
               disabled={!currentPassword || !newPassword}
             >
               <p className={MUTED}>
-                Keep your password somewhere safe. If you forget it, contact
-                an administrator to reset it.
+                Keep your password somewhere safe. If you forget it, contact an
+                administrator to reset it.
               </p>
 
               <div className="flex items-start gap-3">
@@ -355,7 +369,9 @@ export default function AccountPanel({
                     look="outlined"
                     type="password"
                     value={newPassword}
-                    onChange={draft("password", setNewPassword)}
+                    onChange={draft("password", (value) =>
+                      setNewPassword(limitPasswordBytes(value)),
+                    )}
                     disabled={busy}
                     maxLength={72}
                     showCounter={false}
@@ -378,7 +394,9 @@ export default function AccountPanel({
                     look="outlined"
                     type="password"
                     value={confirmPassword}
-                    onChange={draft("password", setConfirmPassword)}
+                    onChange={draft("password", (value) =>
+                      setConfirmPassword(limitPasswordBytes(value)),
+                    )}
                     disabled={busy}
                     maxLength={72}
                     showCounter={false}

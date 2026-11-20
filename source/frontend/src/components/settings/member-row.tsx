@@ -15,10 +15,13 @@ import Button from "@/components/ui/button";
 import ConfirmModal from "@/components/ui/confirm-modal";
 import { Select, TextInput } from "@/components/ui/field";
 import { MUTED } from "./settings-style";
+import {
+  MIN_PASSWORD,
+  limitPasswordBytes,
+  passwordCharacterLength,
+} from "@/lib/password";
 
 const ASSIGNABLE_ROLES: AccountRole[] = ["Lab Admin", "Lab User"];
-
-const MIN_PASSWORD = 8;
 
 // Runs one write against this member, then reloads the list. Returns false
 // when the server refused, with its `detail` already on screen.
@@ -52,7 +55,10 @@ function ResetForm({
       onError("Enter a new email address, a new password, or both.");
       return;
     }
-    if (password && password.length < MIN_PASSWORD) {
+    if (
+      password &&
+      passwordCharacterLength(password) < MIN_PASSWORD
+    ) {
       onError(
         `The new password must be at least ${MIN_PASSWORD} characters long.`,
       );
@@ -109,7 +115,7 @@ function ResetForm({
           look="outlined"
           type="password"
           value={password}
-          onChange={setPassword}
+          onChange={(value) => setPassword(limitPasswordBytes(value))}
           disabled={busy}
           maxLength={72}
           showCounter={false}

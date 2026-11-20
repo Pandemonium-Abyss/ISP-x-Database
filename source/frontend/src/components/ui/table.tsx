@@ -10,14 +10,28 @@ const grid = (gridClassName: string) =>
   `grid flex-1 items-center gap-3 ${gridClassName}`;
 
 // green bar, one title per column. keeps room on the right for the scrollbar
-export function TableHeader({
+export function TableHeader<T extends string = string>({
   titles,
   gridClassName,
   hasOverflow = false,
+  onIconClick,
+  iconLabel = "Toggle table section",
+  iconPressed = false,
+  sortKeys,
+  sortKey,
+  sortDirection,
+  onSort,
 }: {
   titles: string[];
   gridClassName: string;
   hasOverflow?: boolean;
+  onIconClick?: () => void;
+  iconLabel?: string;
+  iconPressed?: boolean;
+  sortKeys?: T[];
+  sortKey?: T;
+  sortDirection?: "asc" | "desc";
+  onSort?: (key: T) => void;
 }) {
   return (
     <div
@@ -25,13 +39,50 @@ export function TableHeader({
         hasOverflow ? "pr-6" : "pr-4"
       }`}
     >
-      <Icon src="/header_donut_dark_green.svg" className="size-4" />
+      {onIconClick ? (
+        <button
+          type="button"
+          onClick={onIconClick}
+          aria-label={iconLabel}
+          aria-pressed={iconPressed}
+          className="flex size-4 shrink-0 items-center justify-center"
+        >
+          <Icon
+            src={
+              iconPressed
+                ? "/header_donut_gray.svg"
+                : "/header_donut_dark_green.svg"
+            }
+            className={`size-4 transition-transform duration-300 ease-in-out ${
+              iconPressed ? "rotate-180" : ""
+            }`}
+          />
+        </button>
+      ) : (
+        <Icon src="/header_donut_dark_green.svg" className="size-4" />
+      )}
       <div className={grid(gridClassName)}>
-        {titles.map((title) => (
-          <h1 key={title} className="truncate text-base font-bold text-white">
-            {title}
-          </h1>
-        ))}
+        {titles.map((title, index) => {
+          const key = sortKeys?.[index];
+          const isSorted = key !== undefined && key === sortKey;
+
+          return onSort && key ? (
+            <button
+              key={title}
+              type="button"
+              onClick={() => onSort(key)}
+              aria-label={`Sort by ${title}`}
+              className="min-w-0 truncate text-left text-base font-bold text-white"
+            >
+              {title}
+              {isSorted && (sortDirection === "asc" ? " ↓" : " ↑")}
+            </button>
+          ) : (
+            <h1 key={title} className="truncate text-base font-bold text-white">
+              {title}
+            </h1>
+          );
+        })}
       </div>
     </div>
   );

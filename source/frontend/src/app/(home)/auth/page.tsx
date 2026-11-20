@@ -3,11 +3,19 @@
 import { Suspense, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { signInWithPassword } from "@/lib/auth/session";
+import { getMe } from "@/lib/account";
+import { EyeIcon } from "@/components/ui/icon";
 
 const inputClass =
   "bg-(--panel-bg) px-3 py-2 text-black outline-none border border-(--panel-bg-hover) rounded-xl focus:border-(--primary-color-1)";
 
 const labelClass = "flex flex-col gap-1 text-base text-(--primary-color-deep)";
+
+const WRONG_LOGIN =
+  "The email or password you entered is incorrect. If you need to reset your credentials, please contact Lab Owner or Lab Admin.";
+
+const NO_ACCOUNT =
+  "This login has no account in the lab. Please contact Lab Owner or Lab Admin.";
 
 // useSearchParams needs a Suspense boundary above it during prerender.
 export default function AuthPage() {
@@ -22,10 +30,15 @@ function AuthForm() {
   const router = useRouter();
   // Set by getMe when the backend turns a deactivated account away, so they
   // are told why instead of just landing back here.
-  const deactivated = useSearchParams().has("deactivated");
+  const searchParams = useSearchParams();
+  const deactivated = searchParams.has("deactivated");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  // noaccount: getMe found a login with no account row and signed it out
+  const [error, setError] = useState<string | null>(
+    searchParams.has("noaccount") ? NO_ACCOUNT : null,
+  );
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -36,7 +49,20 @@ function AuthForm() {
     try {
       // Stores the token in the cookie the middleware reads, so the push
       // below is not sent straight back here.
-      await signInWithPassword(email, password);
+      await signInWithPassword(email, password).catch((err: unknown) => {
+        // wrong email/password get friendly text, others show real reason
+        const message = err instanceof Error ? err.message : "";
+        throw new Error(
+          message === "Incorrect email or password" ? WRONG_LOGIN : message,
+        );
+      });
+
+      // The backend authenticates the login, but account.active is enforced by
+      // the backend account row. Verify that row before entering the app.
+      const account = await getMe({ force: true });
+
+      // no row or deactivated: getMe signed out and reload with the reason
+      if (!account) return;
 
       router.push("/dashboard");
     } catch (err) {
@@ -80,11 +106,22 @@ function AuthForm() {
           </label>
 
           <label htmlFor="password" className={labelClass}>
-            Password
+            <span className="flex items-center justify-between">
+              Password
+              <button
+                type="button"
+                onClick={() => setShowPassword((shown) => !shown)}
+                className="flex size-6 items-center justify-center"
+                aria-label={showPassword ? "Hide password" : "Show password"}
+                aria-pressed={showPassword}
+              >
+                <EyeIcon shown={showPassword} />
+              </button>
+            </span>
             <input
               id="password"
               name="password"
-              type="password"
+              type={showPassword ? "text" : "password"}
               autoComplete="current-password"
               required
               value={password}
@@ -106,7 +143,7 @@ function AuthForm() {
         <div
           className={`overflow-hidden transition-all duration-300 ease-in-out ${
             deactivated || error
-              ? "mt-4 max-h-32 opacity-100"
+              ? "mt-4 max-h-48 opacity-100"
               : "max-h-0 opacity-0"
           }`}
         >
@@ -115,14 +152,13 @@ function AuthForm() {
               role="alert"
               className="border-2 border-(--primary-red) bg-(--primary-red)/10 p-3 text-sm text-(--primary-red)"
             >
-              The email or password you entered is incorrect. If you need to
-              reset your credentials, please contact Lab Owner or Lab Admin.
+              {error}
             </div>
           ) : (
             deactivated && (
               <div
                 role="alert"
-                className="border-2 border-dashed border-(--primary-red) bg-(--primary-red)/10 p-3 text-sm text-(--primary-red)"
+                className="border-2 border-(--primary-red) bg-(--primary-red)/10 p-3 text-sm text-(--primary-red)"
               >
                 Your account has been deactivated. Ask a Lab Owner or Lab Admin
                 to turn it back on.

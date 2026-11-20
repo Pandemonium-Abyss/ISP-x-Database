@@ -3,7 +3,7 @@ import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import AfterValidator, BaseModel, EmailStr, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,6 +34,21 @@ MIN_PASSWORD = 8
 MAX_PASSWORD = PASSWORD_MAX_BYTES
 
 
+def validate_password_bytes(password: str) -> str:
+    if len(password.encode("utf-8")) > MAX_PASSWORD:
+        raise ValueError(
+            f"Password must be at most {MAX_PASSWORD} bytes when encoded as UTF-8"
+        )
+    return password
+
+
+Password = Annotated[
+    str,
+    Field(min_length=MIN_PASSWORD, max_length=MAX_PASSWORD),
+    AfterValidator(validate_password_bytes),
+]
+
+
 class ChangeEmailRequest(BaseModel):
     email: EmailStr
     # Not for identity - the token settled that. It stops someone at an unlocked browser pointing the login at their own address.
@@ -42,7 +57,7 @@ class ChangeEmailRequest(BaseModel):
 
 class ChangePasswordRequest(BaseModel):
     current_password: str = Field(min_length=1)
-    new_password: str = Field(min_length=MIN_PASSWORD, max_length=MAX_PASSWORD)
+    new_password: Password
 
 
 class UserKind(str, enum.Enum):
@@ -62,7 +77,7 @@ class CreateUserRequest(BaseModel):
     # A login is keyed on the email address, and signing in is email plus
     # password, so there is nothing to fall back on if this is missing.
     email: EmailStr
-    password: str = Field(min_length=MIN_PASSWORD, max_length=MAX_PASSWORD)
+    password: Password
     kind: UserKind = UserKind.MEMBER
     # Trial only, and ignored for a plain member - they have no cap at all.
     quota: int | None = Field(default=None, ge=0)
@@ -81,10 +96,13 @@ async def create_my_account(
     body: CreateAccountRequest,
     session: Annotated[AsyncSession, Depends(getSession)],
     auth_user: Annotated[TokenUser, Depends(account_service.get_current_auth_user)],
+    _admin: Annotated[Account, Depends(account_service.require_admin)],
 ):
     """Claim the account row for the signed in user. A user who has a login
     but no account row picks their username here - the row does not exist
-    until they do."""
+    until they do.
+
+    Admin only, so a stray sign up cannot join the lab by itself."""
     username = body.username.strip()
     if not username:
         raise HTTPException(
@@ -149,34 +167,29 @@ async def update_account(
     session: Annotated[AsyncSession, Depends(getSession)],
     me: Annotated[Account, Depends(account_service.get_current_account)],
 ):
-    """Rename yourself; quota and active are admin only."""
-    caller_is_admin = account_service.is_admin(me)
-    if me.id != account_id and not caller_is_admin:
+    """Rename yourself; quota and active are admin only. Anyone else's row
+    needs you to outrank them, same as the login and role endpoints."""
+    # Before the lookup, so a member cannot probe which ids exist.
+    if me.id != account_id and not account_service.is_admin(me):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not allowed to edit this account",
         )
 
-    target = await account_service.get_account_or_404(session, account_id)
+    target =await account_service.get_account_or_404(session, account_id)
     sent = body.model_fields_set
 
-    if not caller_is_admin and ({"quota", "active"} & sent):
+    # Your own row is always yours; without the self check a Lab Admin could not even rename themselves.
+    if target.id != me.id:
+        account_service.assert_can_manage(me, target, "edit this account")
+
+    if not account_service.is_admin(me) and ({"quota", "active"} & sent):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only a Lab Owner or Lab Admin can change quota or active",
         )
 
     changed: list[str] = []
-
-    # Your own row is always yours; without the self check a Lab Admin could not even rename themselves.
-    if (
-        target.id != me.id
-        and me.role is not AccountRole.LAB_OWNER
-        and target.role is AccountRole.LAB_ADMIN
-    ):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Only Lab Owner could change details of other Admin"
-        )
 
     if "username" in sent and body.username is not None:
         username = body.username.strip()
@@ -320,10 +333,10 @@ async def delete_account(
             status_code=status.HTTP_409_CONFLICT,
             detail="A Lab Owner cannot be deleted here",
         )
+    account_service.assert_can_manage(me, target, "delete this account")
 
-    # Read off the row before it goes: the rollback below expires `target`,
-    # and reaching for a name on it then means a reload from inside an except,
-    # which is IO where the session has none left to give.
+    # Read these now: rollback() expires every attribute on target, and lazily
+    # reloading one in an async session raises MissingGreenlet.
     username = target.username
 
     account_service.audit_account(
@@ -448,6 +461,7 @@ async def assign_role(
             status_code=status.HTTP_409_CONFLICT,
             detail="You cannot change your own role",
         )
+    account_service.assert_can_manage(me, target, "change this role")
 
     if target.role is body.role:
         return {"Account": target, "Message": f"{target.username} is already {body.role.value}"}
