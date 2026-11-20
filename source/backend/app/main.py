@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from pymongo.asynchronous.database import AsyncDatabase
 
 from app.database import create_tables, engine, getSession
+from app.migrate_audit_log import migrate as migrate_audit_log
 from app.mongo import MONGO_DB, connect as connect_mongo, getMongo, init_mongo
 from app.routers.account import accountRouter
 from app.routers.announcement import announcementRouter
@@ -28,6 +29,9 @@ async def lifespan(app: FastAPI):
     await create_tables()
     app.state.mongo = connect_mongo()
     await init_mongo(app.state.mongo[MONGO_DB])
+    # One-off: an audit_log table from before the move to Mongo is copied
+    # over and dropped. A no-op once it is gone.
+    await migrate_audit_log(app.state.mongo[MONGO_DB])
     yield
     await engine.dispose()
     await app.state.mongo.close()

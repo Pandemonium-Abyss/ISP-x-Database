@@ -10,6 +10,7 @@ from app.database import getSession
 from app.limits import DESCRIPTION_MAX, Name
 from app.model import Account, TicketStatus
 from app.service.notification_service import Notifier, get_notifier
+from app.service.audit_service import AuditWriter
 from app.service import account_service, ticket_service
 
 
@@ -39,7 +40,8 @@ class TicketUpdate(BaseModel):
 ticketRouter = APIRouter(
     prefix="/ticket",
     dependencies=[
-        Depends(account_service.get_current_auth_user)
+        Depends(account_service.get_current_auth_user),
+        AuditWriter,
     ],
 )
 

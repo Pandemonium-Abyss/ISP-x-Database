@@ -14,8 +14,8 @@ from app.model import (
     Category,
     AccountRole,
     TicketStatus,
-    AuditLog,
 )
+from app.service.audit_service import record
 
 
 async def retrieve_tickets(
@@ -178,32 +178,10 @@ async def create_ticket(
     }
 
     for col_name, new_value in audit_fields.items():
-        session.add(
-            AuditLog(
-                from_table="ticket",
-                row_id=str(ticket.id),
-                column_name=col_name,
-                old_value=None,
-                new_value=(
-                    str(new_value)
-                    if new_value is not None
-                    else None
-                ),
-                by_whom=me.id,
-            )
-        )
+        record(session, "ticket", ticket.id, col_name, None, new_value, me.id, action="created")
 
     if new_quota is not None:
-        session.add(
-            AuditLog(
-                from_table="account",
-                row_id=str(me.id),
-                column_name="quota",
-                old_value=str(new_quota + 1),
-                new_value=str(new_quota),
-                by_whom=me.id,
-            )
-        )
+        record(session, "account", me.id, "quota", new_quota + 1, new_quota, me.id)
 
     if notifier is not None:
         # Every admin, so it gets picked up by whoever is around; the ones
@@ -283,24 +261,13 @@ async def update_ticket(
                 detail="Category not found",
             )
 
+    # A field change worth logging, or None when it did not really change
+    # (compared as text, so two equal dates count as the same).
     def update_ticket_log(col_name, old_val, new_val):
-        audit = AuditLog(
-            from_table="ticket",
-            row_id=str(ticket.id),
-            column_name=col_name,
-            old_value=(
-                str(old_val) if old_val is not None else None
-            ),
-            new_value=(
-                str(new_val) if new_val is not None else None
-            ),
-            by_whom=me.id,
-        )
-
-        if audit.old_value == audit.new_value:
+        if (None if old_val is None else str(old_val)) == (None if new_val is None else str(new_val)):
             return None
 
-        return audit
+        return (col_name, old_val, new_val)
 
     audit_list = []
 
@@ -387,7 +354,7 @@ async def update_ticket(
 
     for audit in audit_list:
         if audit is not None:
-            session.add(audit)
+            record(session, "ticket", ticket.id, *audit, me.id)
 
     # accept make the task from the saved ticket, same transaction, so a
     # failed task leaves the ticket as it was
@@ -445,20 +412,7 @@ async def delete_ticket(
     }
 
     for col_name, old_value in audit_fields.items():
-        session.add(
-            AuditLog(
-                from_table="ticket",
-                row_id=str(ticket.id),
-                column_name=col_name,
-                old_value=(
-                    str(old_value)
-                    if old_value is not None
-                    else None
-                ),
-                new_value=None,
-                by_whom=me.id,
-            )
-        )
+        record(session, "ticket", ticket.id, col_name, old_value, None, me.id, action="deleted")
 
     await session.delete(ticket)
     await session.commit()

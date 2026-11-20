@@ -5,7 +5,7 @@ Rules these tests follow so they are safe against shared data:
   TEST_ACCOUNT_ID). Only the bearer token check is faked; get_current_account
   and every permission check run for real.
 - Every row a test writes is tracked, and the teardown deletes it together
-  with its audit rows. Tickets and tasks live under a category created for
+  (audit entries go to a per-test Mongo database). Tickets and tasks live under a category created for
   that test. Accounts created through the API have their auth.users login
   removed as well.
 - The one existing Lab User the tests sign in as is only ever used to read,
@@ -31,12 +31,11 @@ from sqlalchemy.pool import NullPool
 
 from app.database import getSession
 from app.main import app
-from app.mongo import getMongo, init_mongo
+from app.mongo import AUDIT_LOGS, getMongo, init_mongo
 from app.model import (
     Account,
     AccountRole,
     Announcement,
-    AuditLog,
     AuthUser,
     Category,
     Task,
@@ -47,6 +46,15 @@ from app.model import (
 from app.service import account_service
 
 AUTH_HEADER = {"Authorization": "Bearer integration-test"}
+
+
+def _as_text(value):
+    """How the old table would have stored a value: as text, None as None."""
+    if value is None:
+        return None
+    if isinstance(value, list):
+        return ",".join(str(v) for v in value)
+    return str(value)
 
 
 def unique(prefix: str = "pytest") -> str:
@@ -272,12 +280,40 @@ class DB:
 
         return self.run(go)
 
-    def audit_rows(self, table: str, row_id) -> list[AuditLog]:
-        return self.scalars(
-            select(AuditLog)
-            .where(AuditLog.from_table == table, AuditLog.row_id == str(row_id))
-            .order_by(AuditLog.id)
-        )
+    def audit_entries(self, table: str, row_id) -> list[dict]:
+        """The Mongo documents for one record, oldest first."""
+
+        async def go():
+            cursor = (
+                self.client.mongo[AUDIT_LOGS]
+                .find({"table": table, "row_id": str(row_id)})
+                .sort([("at", 1), ("_id", 1)])
+            )
+            return [doc async for doc in cursor]
+
+        return self.run(go)
+
+    def audit_rows(self, table: str, row_id) -> list[SimpleNamespace]:
+        """The same entries flattened back to one row per field, the shape
+        the Postgres table had, so a test can say "status went from X to Y".
+        Values come back as text the way the table stored them; `action`
+        and `entry_id` say which document a row came from."""
+        rows = []
+        for doc in self.audit_entries(table, row_id):
+            for change in doc["changes"]:
+                rows.append(
+                    SimpleNamespace(
+                        id=str(doc["_id"]),
+                        entry_id=str(doc["_id"]),
+                        action=doc["action"],
+                        column_name=change["field"],
+                        old_value=_as_text(change.get("from")),
+                        new_value=_as_text(change.get("to")),
+                        by_whom=uuid.UUID(doc["by"]) if doc.get("by") else None,
+                        occurred_at=doc["at"],
+                    )
+                )
+        return rows
 
     # -- cleanup -------------------------------------------------------------
 
@@ -290,24 +326,8 @@ class DB:
                 )
                 self.tracked[table] |= set(extra.all())
 
-            for table, ids in self.tracked.items():
-                if ids:
-                    await s.execute(
-                        delete(AuditLog).where(
-                            AuditLog.from_table == table,
-                            AuditLog.row_id.in_([str(i) for i in ids]),
-                        )
-                    )
-            # create_task writes its audit row before the task has an id, so
-            # the row_id is the string "None". Take ours by actor and time.
-            await s.execute(
-                delete(AuditLog).where(
-                    AuditLog.from_table == "task",
-                    AuditLog.row_id == "None",
-                    AuditLog.by_whom.in_(list({self.me_id, *self.tracked["account"]})),
-                    AuditLog.occurred_at >= self.started_at,
-                )
-            )
+            # Audit entries need no cleanup: they went to this test's own
+            # Mongo database, which is dropped with the client.
 
             for table, model in (
                 ("task", Task),

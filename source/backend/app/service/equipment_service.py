@@ -21,6 +21,7 @@ from pymongo.errors import DuplicateKeyError
 
 from app.limits import DESCRIPTION_MAX, Name
 from app.mongo import EQUIPMENT
+from app.service.audit_service import log_now
 
 
 class EquipmentType(str, enum.Enum):
@@ -205,10 +206,20 @@ async def create_equipment(db: AsyncDatabase, body: EquipmentCreate, by: uuid.UU
     except DuplicateKeyError as exc:
         raise SERIAL_TAKEN from exc
     doc["_id"] = result.inserted_id
+    await log_now(
+        db,
+        EQUIPMENT,
+        result.inserted_id,
+        [(field, None, doc[field]) for field in ("name", "type", "status", "location", "serial_number", "specs") if doc[field] not in (None, {})],
+        by,
+        action="created",
+    )
     return serialize(doc)
 
 
-async def update_equipment(db: AsyncDatabase, equipment_id: str, body: EquipmentUpdate) -> dict[str, Any]:
+async def update_equipment(
+    db: AsyncDatabase, equipment_id: str, body: EquipmentUpdate, by: uuid.UUID
+) -> dict[str, Any]:
     current = await get_or_404(db, equipment_id)
     sent = body.model_fields_set
     changes: dict[str, Any] = {}
@@ -241,6 +252,13 @@ async def update_equipment(db: AsyncDatabase, equipment_id: str, body: Equipment
     if updated is None:
         # Deleted between the read and the write.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Equipment with id {equipment_id} not found")
+    await log_now(
+        db,
+        EQUIPMENT,
+        current["_id"],
+        [(field, current.get(field), value) for field, value in changes.items() if field != "updated_at"],
+        by,
+    )
     return serialize(updated)
 
 
@@ -262,11 +280,26 @@ async def add_maintenance(
     )
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Equipment with id {equipment_id} not found")
+    # The log entry itself is the change: nothing before, the note after.
+    await log_now(db, EQUIPMENT, updated["_id"], [("maintenance", None, entry)], by)
     return serialize(updated)
 
 
-async def delete_equipment(db: AsyncDatabase, equipment_id: str) -> str:
-    doc = await db[EQUIPMENT].find_one_and_delete({"_id": parse_id(equipment_id)}, {"name": 1})
+async def delete_equipment(db: AsyncDatabase, equipment_id: str, by: uuid.UUID) -> str:
+    doc = await db[EQUIPMENT].find_one_and_delete({"_id": parse_id(equipment_id)})
     if doc is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Equipment with id {equipment_id} not found")
+    # What it was, so the history says what went; the maintenance log is
+    # summed up rather than copied whole.
+    await log_now(
+        db,
+        EQUIPMENT,
+        doc["_id"],
+        [
+            *((field, doc.get(field), None) for field in ("name", "type", "status", "location", "serial_number", "specs") if doc.get(field) not in (None, {})),
+            ("maintenance_entries", len(doc.get("maintenance", [])), None),
+        ],
+        by,
+        action="deleted",
+    )
     return doc["name"]

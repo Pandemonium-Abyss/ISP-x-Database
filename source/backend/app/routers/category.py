@@ -9,11 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import getSession
 from app.limits import CategoryName
 from app.model import Account, Category
+from app.service.audit_service import AuditWriter
 from app.service import category_service, account_service
 
 # account check, not only token, so a deactivated member is kept out
 categoryRouter = APIRouter(
-    prefix="/category", dependencies=[Depends(account_service.get_current_account)]
+    prefix="/category",
+    dependencies=[Depends(account_service.get_current_account), AuditWriter],
 )
 
 class CategoryRequestBody(BaseModel):
@@ -40,7 +42,7 @@ async def create_category(body : CategoryRequestBody, session: Annotated[AsyncSe
     session.add(newCategory)
     try:
         await session.flush()
-        category_service.audit_category(session, newCategory.id, "name", None, newCategory.name, me.id)
+        category_service.audit_category(session, newCategory.id, "name", None, newCategory.name, me.id, "created")
         await session.commit()
     except IntegrityError as exc:
         # category_name_key: the name is UNIQUE.
@@ -69,7 +71,7 @@ async def delete_category(category_id: int, session: Annotated[AsyncSession, Dep
     targetCategory = await category_service.get_category_or_404(session, category_id)
     # Read before the commit: a rollback expires the row and the name is gone.
     name = targetCategory.name
-    category_service.audit_category(session, category_id, "name", name, None, me.id)
+    category_service.audit_category(session, category_id, "name", name, None, me.id, "deleted")
     await session.delete(targetCategory)
     try:
         await session.commit()

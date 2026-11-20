@@ -8,24 +8,53 @@ import Button from "@/components/ui/button";
 import { Select } from "@/components/ui/field";
 import { ERROR, HEAD, LIST_PANEL, MESSAGE, MUTED, ROW } from "./settings-style";
 
-// The log is written by hand, one row per changed column, by whichever endpoint
-// made the change so these are the only tables that can show up.
-const TABLES = ["account", "announcement", "category", "task", "ticket"];
+// The log is written by whichever endpoint made the change, so these are the
+// only tables that can show up.
+const TABLES = [
+  "account",
+  "announcement",
+  "category",
+  "equipment",
+  "task",
+  "ticket",
+];
 
 // One screenful. The server caps `limit` at 500 either way.
 const PAGE_SIZE = 100;
 
 // fr cols. grid! because HEAD and ROW are flex
 const COLS =
-  "grid! grid-cols-[minmax(5rem,0.8fr)_minmax(8rem,1.8fr)_minmax(6rem,1.2fr)_minmax(5rem,1.1fr)_minmax(5rem,1.1fr)_4fr]";
+  "grid! grid-cols-[minmax(5rem,0.8fr)_minmax(8rem,1.6fr)_minmax(6rem,1.2fr)_minmax(5rem,1fr)_minmax(5rem,0.9fr)_4.5fr] items-start!";
 
 // A deleted account leaves by_whom null, and a create or a delete leaves one
 // side of the change null, so neither of those is an error worth shouting about.
 const DASH = "-";
 
-function valueOf(value: string | null) {
-  return value === null || value === "" ? DASH : value;
+// ISO timestamps as they come out of JSON, e.g. a due date.
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+
+function valueOf(value: unknown): string {
+  if (value === null || value === undefined || value === "") return DASH;
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (Array.isArray(value))
+    return value.length ? value.map(valueOf).join(", ") : DASH;
+  // equipment specs: "max_rpm: 15000, rotor: fixed-angle"
+  if (typeof value === "object") {
+    const pairs = Object.entries(value as Record<string, unknown>);
+    return pairs.length
+      ? pairs.map(([k, v]) => `${k}: ${valueOf(v)}`).join(", ")
+      : DASH;
+  }
+  if (typeof value === "string" && ISO_DATE.test(value))
+    return formatLogDateTime(value);
+  return String(value);
 }
+
+const ACTION_BADGE: Record<AuditLog["action"], string> = {
+  created: "bg-green-100 text-green-800",
+  updated: "bg-sky-100 text-sky-800",
+  deleted: "bg-red-100 text-red-800",
+};
 
 export default function Log({ accountLoading }: { accountLoading: boolean }) {
   const [entries, setEntries] = useState<AuditLog[]>([]);
@@ -144,8 +173,9 @@ export default function Log({ accountLoading }: { accountLoading: boolean }) {
       <div className="flex flex-col gap-1.5">
         <p className="font-semibold">All Changes in Your Lab</p>
         <p className={MUTED}>
-          Each entry records a change to one database field. Entries are shown
-          newest first and cannot be edited or deleted.
+          Each entry records one change to one record, with every field that
+          changed. Entries are shown newest first and cannot be edited or
+          deleted.
         </p>
       </div>
 
@@ -210,8 +240,8 @@ export default function Log({ accountLoading }: { accountLoading: boolean }) {
                 <span>Date and Time</span>
                 <span>Changed By</span>
                 <span>Table</span>
-                <span>Field</span>
-                <span>Change</span>
+                <span>Action</span>
+                <span>Changes</span>
               </div>
 
               {loading ? (
@@ -223,7 +253,12 @@ export default function Log({ accountLoading }: { accountLoading: boolean }) {
                 )
               ) : (
                 entries.map((entry) => (
-                  <div key={entry.id} className={`${ROW} ${COLS} text-sm`}>
+                  <div
+                    key={entry.id}
+                    // rows grow with the number of fields, so a pill shape
+                    // turns into a lozenge - plain rounded corners instead
+                    className={`${ROW} ${COLS} rounded-2xl! text-sm`}
+                  >
                     <span
                       className="truncate"
                       title={entry.row_id ?? undefined}
@@ -242,24 +277,46 @@ export default function Log({ accountLoading }: { accountLoading: boolean }) {
                       )}
                     </span>
 
-                    <span className="truncate" title={entry.from_table}>
-                      {entry.from_table}
+                    <span className="truncate" title={entry.table}>
+                      {entry.table}
                     </span>
 
-                    <span className="truncate" title={entry.column_name}>
-                      {entry.column_name}
-                    </span>
-
-                    <span
-                      className="truncate"
-                      title={`${valueOf(entry.old_value)} → ${valueOf(entry.new_value)}`}
-                    >
-                      <span className="text-gray-500">
-                        {valueOf(entry.old_value)}
+                    <span>
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-xs font-semibold capitalize ${ACTION_BADGE[entry.action]}`}
+                      >
+                        {entry.action}
                       </span>
-                      <span className="px-2 text-gray-500">&rarr;</span>
-                      {valueOf(entry.new_value)}
                     </span>
+
+                    <ul className="flex min-w-0 flex-col gap-0.5">
+                      {entry.changes.map((change, i) => {
+                        const from = valueOf(change.from);
+                        const to = valueOf(change.to);
+
+                        return (
+                          <li
+                            key={`${change.field}-${i}`}
+                            className="truncate"
+                            title={`${change.field}: ${from} → ${to}`}
+                          >
+                            <span className="font-semibold">
+                              {change.field}
+                            </span>{" "}
+                            {/* A create has no "before", a delete no "after". */}
+                            {entry.action !== "created" && (
+                              <span className="text-gray-500">{from}</span>
+                            )}
+                            {entry.action === "updated" && (
+                              <span className="px-1.5 text-gray-500">
+                                &rarr;
+                              </span>
+                            )}
+                            {entry.action !== "deleted" && to}
+                          </li>
+                        );
+                      })}
+                    </ul>
                   </div>
                 ))
               )}

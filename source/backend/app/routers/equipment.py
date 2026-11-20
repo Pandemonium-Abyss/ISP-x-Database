@@ -49,8 +49,8 @@ async def create_equipment(body: EquipmentCreate, db: Mongo, me: Admin):
 
 
 @equipmentRouter.put("/{equipment_id}", tags=["Equipment"])
-async def update_equipment(equipment_id: str, body: EquipmentUpdate, db: Mongo, _me: Admin):
-    return {"Equipment": await equipment_service.update_equipment(db, equipment_id, body)}
+async def update_equipment(equipment_id: str, body: EquipmentUpdate, db: Mongo, me: Admin):
+    return {"Equipment": await equipment_service.update_equipment(db, equipment_id, body, me.id)}
 
 
 @equipmentRouter.post(
@@ -61,6 +61,6 @@ async def add_maintenance(equipment_id: str, body: MaintenanceEntry, db: Mongo, 
 
 
 @equipmentRouter.delete("/{equipment_id}", tags=["Equipment"])
-async def delete_equipment(equipment_id: str, db: Mongo, _me: Admin):
-    name = await equipment_service.delete_equipment(db, equipment_id)
+async def delete_equipment(equipment_id: str, db: Mongo, me: Admin):
+    name = await equipment_service.delete_equipment(db, equipment_id, me.id)
     return {"Message": f"Deleted {name}"}

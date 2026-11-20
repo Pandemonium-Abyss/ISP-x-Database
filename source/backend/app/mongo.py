@@ -31,6 +31,7 @@ MONGO_DB = os.environ.get("MONGO_DB", "isp")
 
 EQUIPMENT = "equipment"
 NOTIFICATIONS = "notifications"
+AUDIT_LOGS = "audit_logs"
 
 # A last line of defence under the Pydantic models: even a document written
 # from mongosh has to carry these, with these types. `specs` is deliberately
@@ -100,6 +101,33 @@ NOTIFICATION_SCHEMA = {
 }
 
 
+AUDIT_LOG_SCHEMA = {
+    "$jsonSchema": {
+        "bsonType": "object",
+        "required": ["table", "row_id", "action", "changes", "at"],
+        "properties": {
+            "table": {"bsonType": "string", "minLength": 1},
+            "row_id": {"bsonType": "string"},
+            "action": {"enum": ["created", "updated", "deleted"]},
+            "changes": {
+                "bsonType": "array",
+                "items": {
+                    "bsonType": "object",
+                    "required": ["field"],
+                    # from/to are left untyped on purpose: they hold whatever
+                    # the field holds - text, a number, a date, a list.
+                    "properties": {"field": {"bsonType": "string", "minLength": 1}},
+                },
+            },
+            # null once the person is gone, or for rows carried over from
+            # Postgres whose author was already deleted.
+            "by": {"bsonType": ["string", "null"]},
+            "at": {"bsonType": "date"},
+        },
+    }
+}
+
+
 def connect() -> AsyncMongoClient:
     """One client per app lifetime, made in the lifespan rather than at import:
     an async client belongs to the event loop it first runs on, and once
@@ -132,6 +160,16 @@ async def init_mongo(db: AsyncDatabase) -> None:
 
     await ensure_collection(db, EQUIPMENT, EQUIPMENT_SCHEMA)
     await ensure_collection(db, NOTIFICATIONS, NOTIFICATION_SCHEMA)
+
+    await ensure_collection(db, AUDIT_LOGS, AUDIT_LOG_SCHEMA)
+    audit = db[AUDIT_LOGS]
+    # No TTL: history is kept. One index per way the log is read - the whole
+    # log newest first, one record's history, and one person's changes.
+    await audit.create_index([("at", DESCENDING)], name="newest")
+    await audit.create_index(
+        [("table", ASCENDING), ("row_id", ASCENDING), ("at", DESCENDING)], name="record"
+    )
+    await audit.create_index([("by", ASCENDING), ("at", DESCENDING)], name="actor")
 
     notifications = db[NOTIFICATIONS]
     # The bell's query: one person's, unread first, newest first.
