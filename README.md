@@ -179,7 +179,9 @@ docker compose down -v                    # also clear volumes, database include
 
 ## 3. Run in production
 
-`docker-compose.prod.yaml` builds a Next.js standalone server and runs the backend with `fastapi run` on several workers as a non-root user. Both have health checks and restart automatically.
+`docker-compose.prod.yaml` builds a Next.js standalone server, runs the backend with `fastapi run` on several workers as a non-root user, and runs PostgreSQL 17 with its data in the `postgres-data` volume. All three have health checks and restart automatically. The database port is not published; only the backend reaches it, over the compose network.
+
+For production, set a real `POSTGRES_PASSWORD` (and the matching password in `DATABASE_URL`) and a freshly generated `JWT_SECRET` before the first start.
 
 ```bash
 # on the server
@@ -191,6 +193,13 @@ docker compose -f docker-compose.prod.yaml --env-file source/.env up -d --build
 ```
 
 `--env-file source/.env` is required: the `NEXT_PUBLIC_*` values are baked into the frontend at **build** time, so compose must read them before building. After changing any `NEXT_PUBLIC_*` value, rebuild with `--build`.
+
+Create the Lab Owner once, the same as in development. The production image has no `uv`, so call Python directly:
+
+```bash
+docker compose -f docker-compose.prod.yaml exec fastapi \
+  python -m app.create_owner --username owner --email owner@example.com
+```
 
 Check that it's healthy:
 

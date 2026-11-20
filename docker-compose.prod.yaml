@@ -4,8 +4,6 @@ services:
       context: ./source/frontend
       dockerfile: Dockerfile
       args:
-        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:?set in source/.env}
-        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:?set in source/.env}
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?set in source/.env}
     image: isp-frontend:latest
     ports:
@@ -28,6 +26,28 @@ services:
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3000}
       - WEB_CONCURRENCY=${WEB_CONCURRENCY:-2}
     restart: unless-stopped
+    depends_on:
+      # The app creates any missing tables on startup, so the database has to
+      # be accepting connections first, not just started.
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:17-alpine
+    # Not published on purpose: only the backend talks to it, over the compose
+    # network as postgres:5432. For a psql prompt use
+    # `docker compose -f docker-compose.prod.yaml exec postgres psql ...`.
+    env_file:
+      - ./source/.env
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      # $$ so compose leaves these for the container's own shell to expand.
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      retries: 10
+      start_period: 10s
 
   tunnel:
     image: cloudflare/cloudflared:latest
@@ -41,3 +61,6 @@ services:
         condition: service_healthy
       fastapi:
         condition: service_healthy
+
+volumes:
+  postgres-data:

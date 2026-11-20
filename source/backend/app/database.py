@@ -27,8 +27,18 @@ async def getSession() -> AsyncIterator[AsyncSession]:
     async with SessionLocal() as session:
         yield session
 
+# Any fixed number works; it only has to be the same in every process.
+CREATE_TABLES_LOCK = 72_201_001
+
 async def create_tables() -> None:
     async with engine.begin() as conn:
+        # Production runs several workers, and each one calls this on start.
+        # create_all is check-then-create, so two of them racing on an empty
+        # database both try to create the same table and one crashes. The
+        # lock makes them take turns; it is released when the transaction ends.
+        await conn.execute(
+            text("SELECT pg_advisory_xact_lock(:key)"), {"key": CREATE_TABLES_LOCK}
+        )
         # auth.users is ours now rather than Supabase's, so the schema that
         # holds it has to exist before create_all can put it there.
         await conn.execute(text("CREATE SCHEMA IF NOT EXISTS auth"))

@@ -42,23 +42,18 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      # Same as the dev job: the database runs in compose, so throwaway
+      # credentials and signing key are enough, and no secrets are needed.
       - name: Create .env
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
-          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
         run: |
           mkdir -p source
           cat > source/.env <<EOF
-          SUPABASE_URL=$SUPABASE_URL
-          SUPABASE_KEY=$SUPABASE_KEY
-          SUPABASE_DB_URL=$SUPABASE_DB_URL
-          NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL
-          NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY
-          NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+          POSTGRES_USER=postgres
+          POSTGRES_PASSWORD=postgres
+          POSTGRES_DB=isp
+          DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/isp
+          JWT_SECRET=$(openssl rand -hex 32)
+          NEXT_PUBLIC_API_URL=http://localhost:8000
           EOF
 
       - name: Build / Run production compose
