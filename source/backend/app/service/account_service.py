@@ -10,7 +10,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import getSession
-from app.model import Account, AccountRole, AuditLog, AuthUser
+from app.model import Account, AccountRole, AuthUser
+from app.service.audit_service import record
 from app.security import TokenUser, decode_access_token, hash_password, password_matches
 
 logger = logging.getLogger(__name__)
@@ -100,17 +101,12 @@ def audit_account(
     new_value: object,
     by_whom: uuid.UUID,
 ) -> None:
-    """One audit_log row per changed column, matching the task and ticket routers."""
-    session.add(
-        AuditLog(
-            from_table="account",
-            row_id=str(account_id),
-            column_name=column,
-            old_value=None if old_value is None else str(old_value),
-            new_value=None if new_value is None else str(new_value),
-            by_whom=by_whom,
-        )
-    )
+    """One field of an account change. "created" and "deleted" are not
+    fields: they mark the whole entry, with the username as what it is about."""
+    if column in ("created", "deleted"):
+        record(session, "account", account_id, "username", old_value, new_value, by_whom, action=column)
+    else:
+        record(session, "account", account_id, column, old_value, new_value, by_whom)
 
 
 # Which constraint failed -> what actually went wrong. Reporting every

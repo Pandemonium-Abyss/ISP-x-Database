@@ -24,5 +24,6 @@ export const config = {
     "/dashboard/:path*",
     "/request-table/:path*",
     "/announcement/:path*",
+    "/equipment/:path*",
   ],
 };

@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import getSession
 from app.model import Account, TaskStatus
+from app.service.audit_service import AuditWriter
 from app.service import account_service, task_service
 from app.service.notification_service import Notifier, get_notifier
 
@@ -15,7 +16,7 @@ TaskRequest = task_service.TaskRequest
 TaskUpdate = task_service.TaskUpdate
 
 
-taskRouter = APIRouter(prefix="/task", dependencies=[Depends(account_service.get_current_auth_user)])
+taskRouter = APIRouter(prefix="/task", dependencies=[Depends(account_service.get_current_auth_user), AuditWriter])
 
 # Filter params here are optional. If given none, then get all.
 # Filters: id, categories, users (assignees), status, limit

@@ -4,17 +4,24 @@ import { apiFetch, apiOrThrow } from "@/lib/api";
 import { buildQuery } from "@/lib/query";
 import { getUserId } from "@/lib/cache/cache";
 
-// One row per changed column, written by the endpoint that made the change -
-// see the note in the API guide: there is no database trigger behind this.
+// One field of a change. Values keep their type (text, number, true/false,
+// a list, a date as an ISO string, or a nested object for equipment specs).
+export type AuditChange = {
+  field: string;
+  from: unknown;
+  to: unknown;
+};
+
+// One entry per change to one record, stored in MongoDB, holding every field
+// that changed. Written by the endpoint that made the change.
 export type AuditLog = {
-  id: number;
-  from_table: string;
-  row_id: string | null;
-  column_name: string;
-  old_value: string | null;
-  new_value: string | null;
+  id: string;
+  table: string;
+  row_id: string;
+  action: "created" | "updated" | "deleted";
+  changes: AuditChange[];
   by_whom: string | null;
-  // null once the account behind by_whom is deleted (by_whom is ON DELETE SET NULL).
+  // null once the account behind by_whom is deleted.
   by_username: string | null;
   occurred_at: string;
 };

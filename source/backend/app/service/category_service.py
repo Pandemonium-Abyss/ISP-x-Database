@@ -4,7 +4,8 @@ from fastapi import HTTPException, status as http_status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.model import AuditLog, Category
+from app.model import Category
+from app.service.audit_service import Action, record
 
 async def get_category_or_404(session: AsyncSession, category_id: int) -> Category:
     target = await session.scalar(select(Category).where(Category.id == category_id))
@@ -20,14 +21,6 @@ def audit_category(
     old_value: object,
     new_value: object,
     by_whom: uuid.UUID,
+    action: Action = "updated",
 ) -> None:
-    session.add(
-        AuditLog(
-            from_table="category",
-            row_id=str(category_id),
-            column_name=column,
-            old_value=None if old_value is None else str(old_value),
-            new_value=None if new_value is None else str(new_value),
-            by_whom=by_whom,
-        )
-    )
+    record(session, "category", category_id, column, old_value, new_value, by_whom, action)

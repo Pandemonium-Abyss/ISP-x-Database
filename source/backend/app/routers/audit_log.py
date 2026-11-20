@@ -1,78 +1,94 @@
 import uuid
 from typing import Annotated, Any
 
+from bson import ObjectId
+from bson.errors import InvalidId
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pymongo.asynchronous.database import AsyncDatabase
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import joinedload
 
 from app.database import getSession
-from app.model import Account, AuditLog
+from app.model import Account
+from app.mongo import AUDIT_LOGS, getMongo
 from app.service import account_service
 
-auditLogRouter = APIRouter(prefix="/audit-log", dependencies=[Depends(account_service.get_current_auth_user)])
+# The log spans every table, so all of it is Lab Owner and Lab Admin only.
+auditLogRouter = APIRouter(
+    prefix="/audit-log", dependencies=[Depends(account_service.require_admin)]
+)
+
+Mongo = Annotated[AsyncDatabase, Depends(getMongo)]
+Session = Annotated[AsyncSession, Depends(getSession)]
 
 
-def serialize_audit_log(entry: AuditLog) -> dict[str, Any]:
-    """The log is read by username, so flatten the actor onto the row - a uuid
-    on its own tells a reader nothing. None means the account was deleted."""
+async def usernames(session: AsyncSession, docs: list[dict[str, Any]]) -> dict[str, str]:
+    """The log is read by name, but it stores ids - a name changes, an id does
+    not. One Postgres lookup for the whole page."""
+    ids = set()
+    for doc in docs:
+        try:
+            if doc.get("by"):
+                ids.add(uuid.UUID(doc["by"]))
+        except ValueError:
+            continue
+    if not ids:
+        return {}
+    rows = await session.execute(select(Account.id, Account.username).where(Account.id.in_(ids)))
+    return {str(account_id): name for account_id, name in rows.all()}
+
+
+def serialize(doc: dict[str, Any], names: dict[str, str]) -> dict[str, Any]:
     return {
-        "id": entry.id,
-        "from_table": entry.from_table,
-        "row_id": entry.row_id,
-        "column_name": entry.column_name,
-        "old_value": entry.old_value,
-        "new_value": entry.new_value,
-        "by_whom": entry.by_whom,
-        "by_username": entry.actor.username if entry.actor is not None else None,
-        "occurred_at": entry.occurred_at,
+        "id": str(doc["_id"]),
+        "table": doc["table"],
+        "row_id": doc["row_id"],
+        "action": doc["action"],
+        "changes": doc["changes"],
+        "by_whom": doc.get("by"),
+        # None when that account has since been deleted.
+        "by_username": names.get(doc.get("by") or ""),
+        "occurred_at": doc["at"],
     }
 
 
 @auditLogRouter.get("/", tags=["AuditLog"])
 async def retrieve_audit_logs(
-    session: Annotated[AsyncSession, Depends(getSession)],
-    me: Annotated[Account, Depends(account_service.require_admin)],
+    db: Mongo,
+    session: Session,
     limit: Annotated[int, Query(ge=1, le=500)] = 200,
     offset: Annotated[int, Query(ge=0)] = 0,
     from_table: Annotated[str | None, Query(max_length=64)] = None,
     row_id: Annotated[str | None, Query(max_length=36)] = None,
     by_whom: uuid.UUID | None = None,
 ):
-    """Newest first - a change history is read from the most recent change back.
-    The log spans every table, so it is Lab Owner and Lab Admin only."""
-    statement = (
-        select(AuditLog)
-        .options(joinedload(AuditLog.actor))
-        .order_by(AuditLog.occurred_at.desc(), AuditLog.id.desc())
-    )
-
+    """Newest first - a change history is read from the most recent change back."""
+    query: dict[str, Any] = {}
     if from_table is not None:
-        statement = statement.where(AuditLog.from_table == from_table)
+        query["table"] = from_table
     if row_id is not None:
-        statement = statement.where(AuditLog.row_id == row_id)
+        query["row_id"] = row_id
     if by_whom is not None:
-        statement = statement.where(AuditLog.by_whom == by_whom)
+        query["by"] = str(by_whom)
 
-    audit_logs = await session.scalars(statement.limit(limit).offset(offset))
-    return {"AuditLogs": [serialize_audit_log(entry) for entry in audit_logs.all()]}
+    cursor = db[AUDIT_LOGS].find(query).sort([("at", -1), ("_id", -1)]).skip(offset).limit(limit)
+    docs = [doc async for doc in cursor]
+    names = await usernames(session, docs)
+    return {"AuditLogs": [serialize(doc, names) for doc in docs]}
 
 
 @auditLogRouter.get("/{audit_log_id}", tags=["AuditLog"])
-async def retrieve_audit_log(
-    audit_log_id: int,
-    session: Annotated[AsyncSession, Depends(getSession)],
-    me: Annotated[Account, Depends(account_service.require_admin)],
-):
-    statement = (
-        select(AuditLog).options(joinedload(AuditLog.actor)).where(AuditLog.id == audit_log_id)
+async def retrieve_audit_log(audit_log_id: str, db: Mongo, session: Session):
+    not_found = HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail=f"Audit log with id {audit_log_id} not found",
     )
-    entry = await session.scalar(statement)
+    try:
+        oid = ObjectId(audit_log_id)
+    except InvalidId as exc:
+        raise not_found from exc
 
-    if entry is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Audit log with id {audit_log_id} not found",
-        )
-
-    return {"AuditLog": serialize_audit_log(entry)}
+    doc = await db[AUDIT_LOGS].find_one({"_id": oid})
+    if doc is None:
+        raise not_found
+    return {"AuditLog": serialize(doc, await usernames(session, [doc]))}

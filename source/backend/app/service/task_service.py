@@ -9,7 +9,8 @@ from sqlalchemy.orm import selectinload
 
 from app.datetime_utils import to_due_date, to_utc
 from app.limits import DESCRIPTION_MAX, Name
-from app.model import Account, AccountRole, AuditLog, Category, Task, TaskStatus
+from app.model import Account, AccountRole, Category, Task, TaskStatus
+from app.service.audit_service import record
 from app.service.account_service import is_admin
 from app.service.notification_service import NotificationType, Notifier
 
@@ -196,30 +197,18 @@ async def add_task(
     session.add(task)
     await session.flush()
 
-    # one row per field, same as create_ticket
+    # every field it starts with, same as create_ticket
     audit_fields = {
         "name": body.name,
         "description": body.description,
-        "status": body.status.value,
+        "status": body.status,
         "category_id": body.category_id,
         "due_date": conv_duedate,
-        "assignees": ",".join(
-            sorted(str(assignee.id) for assignee in task.assignees)
-        )
-        or None,
+        "assignees": sorted(str(assignee.id) for assignee in task.assignees) or None,
     }
 
     for column_name, new_value in audit_fields.items():
-        session.add(
-            AuditLog(
-                from_table="task",
-                row_id=str(task.id),
-                column_name=column_name,
-                old_value=None,
-                new_value=None if new_value is None else str(new_value),
-                by_whom=me.id,
-            )
-        )
+        record(session, "task", task.id, column_name, None, new_value, me.id, action="created")
 
     if notifier is not None:
         notifier.add(
@@ -246,20 +235,12 @@ async def update_task(
         .where(Task.id == task_id)
     )
 
-    # Create an audit log for the update!
+    # A field change worth logging, or None when the value did not really
+    # change (compared as text, so 3 and "3" or two equal dates are the same).
     def create_audit_log(col_name, old_val, new_value):
-        al = AuditLog(
-            from_table="task",
-            row_id=str(task.id),
-            column_name=col_name,
-            old_value=None if old_val is None else str(old_val),
-            new_value=None if new_value is None else str(new_value),
-            by_whom=me.id,
-        )
-        if al.old_value == al.new_value:
+        if (None if old_val is None else str(old_val)) == (None if new_value is None else str(new_value)):
             return None
-        else:
-            return al
+        return (col_name, old_val, new_value)
 
     audit_list = []
 
@@ -341,12 +322,8 @@ async def update_task(
             ):
                 raise HTTPException(status_code=400, detail="One or more assignees are invalid")
 
-            old_assignee_value = ",".join(
-                sorted(str(assignee_id) for assignee_id in current_assignee_ids)
-            )
-            new_assignee_value = ",".join(
-                sorted(str(assignee_id) for assignee_id in requested_assignee_ids)
-            )
+            old_assignee_value = sorted(str(assignee_id) for assignee_id in current_assignee_ids)
+            new_assignee_value = sorted(str(assignee_id) for assignee_id in requested_assignee_ids)
             audit_list.append(
                 create_audit_log("assignees", old_assignee_value, new_assignee_value)
             )
@@ -362,7 +339,7 @@ async def update_task(
 
     for audit in audit_list:
         if audit is not None:
-            session.add(audit)
+            record(session, "task", task.id, *audit, me.id)
     await session.commit()
     await session.refresh(task)
 
@@ -388,26 +365,17 @@ async def delete_task(
             detail="Only a Lab Owner or Lab Admin can delete tasks",
         )
 
-    # Create an audit log for the deletes!
+    # What it was, field by field, so the history says what was lost.
     audit_fields = {
         "name": task.name,
         "description": task.description,
-        "status": task.status.value,
+        "status": task.status,
         "category_id": task.category_id,
         "due_date": task.due_date,
     }
 
     for column_name, old_value in audit_fields.items():
-        session.add(
-            AuditLog(
-                from_table="task",
-                row_id=str(task.id),
-                column_name=column_name,
-                old_value=str(old_value) if old_value is not None else None,
-                new_value=None,
-                by_whom=me.id,
-            )
-        )
+        record(session, "task", task.id, column_name, old_value, None, me.id, action="deleted")
 
     await session.delete(task)
     await session.commit()

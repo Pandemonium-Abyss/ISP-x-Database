@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import getSession
 from app.limits import DESCRIPTION_MAX, Name
 from app.model import Account
+from app.service.audit_service import AuditWriter
 from app.service import account_service, announcement_service
 from app.service.notification_service import Notifier, get_notifier
 
@@ -24,7 +25,7 @@ class AnnouncementUpdate(BaseModel):
 announcementRouter = APIRouter(
     prefix="/announcement",
     # account check, not only token, so a deactivated member is kept out
-    dependencies=[Depends(account_service.get_current_account)]
+    dependencies=[Depends(account_service.get_current_account), AuditWriter]
 )
 
 
