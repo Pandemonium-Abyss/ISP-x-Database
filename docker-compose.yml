@@ -1,0 +1,90 @@
+name: labrador
+
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: labrador-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-labrador_root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-labrador}
+      MYSQL_USER: ${MYSQL_USER:-labrador}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-labrador_pw}
+    # Bound to localhost only: reachable for local dev / DBeaver, never from the internet.
+    ports:
+      - "127.0.0.1:${MYSQL_PORT:-3317}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./server/db/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-labrador_root}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  mongo:
+    image: mongo:7.0
+    container_name: labrador-mongo
+    restart: unless-stopped
+    # Single-node replica set: required for multi-document Mongo transactions
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      - "127.0.0.1:${MONGO_PORT:-27028}:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: >
+        mongosh --quiet --eval "try { rs.status().ok } catch (e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'localhost:27017'}]}).ok }"
+      interval: 5s
+      timeout: 10s
+      retries: 20
+      start_period: 5s
+
+  # Express API + built React SPA (one origin, port 4000)
+  app:
+    build: .
+    container_name: labrador-app
+    restart: unless-stopped
+    profiles: ["app", "tunnel"]
+    depends_on:
+      mysql: { condition: service_healthy }
+      mongo: { condition: service_healthy }
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-labrador}
+      MYSQL_USER: ${MYSQL_USER:-labrador}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-labrador_pw}
+      MONGO_URI: mongodb://mongo:27017/labrador?replicaSet=rs0&directConnection=true
+      PORT: 4000
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      CLIENT_ORIGIN: ${PUBLIC_URL:-http://localhost:4000}
+      UPLOAD_DIR: uploads
+    ports:
+      - "127.0.0.1:${APP_PORT:-4000}:4000"
+    volumes:
+      - uploads:/app/server/uploads
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4000/api/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  # Cloudflare Tunnel: outbound-only connection to Cloudflare, no open inbound ports.
+  # In the Cloudflare dashboard, route your public hostname to  http://app:4000
+  cloudflared:
+    image: cloudflare/cloudflared:2025.11.1
+    container_name: labrador-cloudflared
+    restart: unless-stopped
+    profiles: ["tunnel"]
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      - app
+
+volumes:
+  mysql_data:
+  mongo_data:
+  uploads:

@@ -1,0 +1,77 @@
+classDiagram
+  direction LR
+  class activity_logs {
+    ObjectId _id
+    Number userId  →users
+    String userName
+    String action  e.g. order.submit
+    Object entity  type, id
+    String ip
+    Object metadata  any shape
+    String adminNote
+    Date timestamp  indexed
+  }
+  class request_comments {
+    ObjectId _id
+    Number requestId  →requests
+    Number userId  →users
+    String userName
+    String body
+    Array attachments  path, name, size, mimeType
+    Array reactions  userId, emoji
+    Date editedAt
+    Date createdAt
+  }
+  class notifications {
+    ObjectId _id
+    Number userId  →users
+    String type  info|request|order|booking|announcement
+    String title
+    String message
+    String link
+    Boolean isRead  indexed
+    Date sentAt
+  }
+  class consumable_carts {
+    ObjectId _id
+    Number userId  →users, unique
+    Array items  consumableId, name, unit, quantity
+    String note
+    Date updatedAt
+  }
+  class maintenance_logs {
+    ObjectId _id
+    Number equipmentId  →equipment
+    Number performedBy  →users
+    String performedByName
+    String kind  calibration|repair|inspection|cleaning
+    String notes
+    Object readings  instrument-specific
+    Array attachments  path, name
+    Date nextDueAt
+    Date performedAt
+  }
+  class announcements {
+    ObjectId _id
+    Number authorId  →users
+    String authorName
+    String title
+    String body
+    Array tags
+    Boolean pinned
+    String audience  all|members|staff
+    Date createdAt
+    Date updatedAt
+  }
+  class MySQL_refs {
+    users.user_id
+    requests.request_id
+    equipment.equipment_id
+    consumables.consumable_id
+  }
+  MySQL_refs <.. activity_logs : userId
+  MySQL_refs <.. request_comments : requestId, userId
+  MySQL_refs <.. notifications : userId
+  MySQL_refs <.. consumable_carts : userId, consumableId
+  MySQL_refs <.. maintenance_logs : equipmentId
+  MySQL_refs <.. announcements : authorId

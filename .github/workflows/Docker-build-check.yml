@@ -7,70 +7,30 @@ jobs:
   builds:
     name: builds
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      # Everything the stack needs now runs in compose, database included, so
-      # this needs no repository secrets - throwaway credentials and a
-      # throwaway signing key are enough to boot it.
+
+      # The whole stack (MySQL, MongoDB, app) runs in compose, so throwaway
+      # credentials and a throwaway signing key are enough - no secrets needed.
       - name: Create .env
         run: |
-          mkdir -p source
-          cat > source/.env <<EOF
-          POSTGRES_USER=postgres
-          POSTGRES_PASSWORD=postgres
-          POSTGRES_DB=isp
-          DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/isp
-          MONGO_INITDB_ROOT_USERNAME=mongo
-          MONGO_INITDB_ROOT_PASSWORD=mongo
-          MONGO_URL=mongodb://mongo:mongo@mongo:27017/?authSource=admin
-          MONGO_DB=isp
-          JWT_SECRET=$(openssl rand -hex 32)
-          NEXT_PUBLIC_API_URL=http://localhost:8100
-          EOF
+          cp .env.example .env
+          sed -i "s/^JWT_SECRET=.*/JWT_SECRET=$(openssl rand -hex 32)/" .env
 
       - name: Build / Run docker compose
-        run: docker compose -f docker-compose.dev.yaml up --build -d --wait --wait-timeout 180
+        run: docker compose --profile app up --build -d --wait --wait-timeout 300
+
+      - name: Migrate + seed
+        run: docker compose --profile app exec -T app sh -c "node db/migrate.js && node db/seed.js"
+
+      - name: CRUD + transaction smoke test
+        run: docker compose --profile app exec -T app node test/crud-smoke.js
 
       - name: Show logs on failure
         if: failure()
-        run: docker compose -f docker-compose.dev.yaml logs
+        run: docker compose --profile app logs
 
       - name: Shutdown containers
         if: always()
-        run: docker compose -f docker-compose.dev.yaml down -v
-
-  prod-builds:
-    name: prod-builds
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      # Same as the dev job: the database runs in compose, so throwaway
-      # credentials and signing key are enough, and no secrets are needed.
-      - name: Create .env
-        run: |
-          mkdir -p source
-          cat > source/.env <<EOF
-          POSTGRES_USER=postgres
-          POSTGRES_PASSWORD=postgres
-          POSTGRES_DB=isp
-          DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/isp
-          MONGO_INITDB_ROOT_USERNAME=mongo
-          MONGO_INITDB_ROOT_PASSWORD=mongo
-          MONGO_URL=mongodb://mongo:mongo@mongo:27017/?authSource=admin
-          MONGO_DB=isp
-          JWT_SECRET=$(openssl rand -hex 32)
-          NEXT_PUBLIC_API_URL=http://localhost:8100
-          EOF
-
-      - name: Build / Run production compose
-        run: docker compose --env-file source/.env -f docker-compose.prod.yaml up --build -d --wait --wait-timeout 180
-
-      - name: Show logs on failure
-        if: failure()
-        run: docker compose --env-file source/.env -f docker-compose.prod.yaml logs
-
-      - name: Shutdown containers
-        if: always()
-        run: docker compose --env-file source/.env -f docker-compose.prod.yaml down -v
+        run: docker compose --profile app down -v

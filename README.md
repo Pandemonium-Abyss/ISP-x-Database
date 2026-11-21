@@ -5,13 +5,7 @@
 <h1 align="center">Labrador</h1>
 
 <p align="center">
-  Lab workflow &amp; request management — Next.js frontend, FastAPI backend, PostgreSQL and MongoDB.
-</p>
-
-<p align="center">
-  <img src="docs/images/lab.jpg" alt="Labrador dashboard in production" width="720" />
-  <br />
-  <em>The live Labrador dashboard.</em>
+  Lab operations hub — React + Vite frontend, Express API, MySQL and MongoDB.
 </p>
 
 ---
@@ -19,21 +13,6 @@
 **Course:** Individual Software Development Process' 2026 \
 **Team:** Wassawin the Goat of All Time (W-GOAT) \
 **Chosen IRL Challenge:** Project B Lab Workflow & Request Management
-
-## Live demo
-
-**<https://labradorxdatabase.isimpsofar.jp.net>**
-
-Sign in with the shared guest account:
-
-| Email | Password |
-| --- | --- |
-| `example.user@gmail.com` | `12345678` |
-
-The guest is a regular lab member: you can file tickets, discuss them with the
-lab admins, follow your tasks and announcements, and browse the equipment.
-Admin pages (users, categories, the activity log) are not available to it.
-Please don't change the guest's password or email — everyone shares it.
 
 ## Team members
 
@@ -68,386 +47,343 @@ Everything lives in [`docs/`](docs).
 | `docs/sequence_diagram/`                                       | Sequence diagrams (SQD-1 … SQD-7)  |
 | `docs/activity_diagram/`                                       | Activity diagrams (AD-1 … AD-6)    |
 | `docs/gantt_chart/`                                            | Project Gantt chart                |
+| `docs/diagrams/`                                               | Architecture, ER, NoSQL schema and checkout-sequence diagrams (PNG/SVG + Mermaid sources) |
+| `docs/screenshots/`                                            | 38 annotated screenshots of the app                                                     |
+| `docs/Labrador-presentation.pptx`                              | 10-slide presentation (speaker notes included)                                          |
 
-## Stack
 
-| Compose service | Role                               | Port on your machine | Port inside Docker |
-| --------------- | ---------------------------------- | -------------------- | ------------------ |
-| `nextjs`        | Next.js frontend                   | 3100                 | 3000               |
-| `fastapi`       | FastAPI backend                    | 8100                 | 8000               |
-| `postgres`      | PostgreSQL 17, in a volume         | 5433 (dev only)      | 5432               |
-| `mongo`         | MongoDB 8, in a volume             | 27018 (dev only)     | 27017              |
-| `tunnel`        | Cloudflare Tunnel (prod, optional) | —                    | —                  |
+---
 
-Two numbers per service, because Docker maps one onto the other: `3100:3000`
-means "port 3100 on the machine forwards to port 3000 inside the container".
+**Labrador** is a self-hosted web application that replaces the email threads, chat messages and
+ad-hoc spreadsheets a research lab uses to run day-to-day work. Members file and track requests,
+book shared equipment, order consumables and discuss work in threads; staff triage a single
+prioritised queue; everyone sees what is going on in the lab and how resources are used over time.
 
-- **Port on your machine** is what *you* use: the browser, `curl`, psql. The
-  app is on 3100/8100 rather than 3000/8000 so it can sit next to other things
-  (or another copy of itself) that already hold those.
-- **Port inside Docker** is what *containers* use to reach each other, by
-  service name: the backend connects to `postgres:5432`, the tunnel forwards to
-  `nextjs:3000`. Inside a container, `localhost` means that container itself.
+It is built on a **hybrid database architecture**: **MySQL** holds the relational core that needs
+strict integrity (users, equipment, inventory, requests, bookings) and **MongoDB** holds the
+flexible, high-volume documents (comments, notifications, carts, audit logs, maintenance readings,
+announcements). Multi-step operations run as **atomic transactions with explicit rollback** across both.
 
-API docs are served at `http://localhost:8100/docs`.
+> 🎥 **Presentation video:** _add your link here_  ·  📑 **Slides:** [docs/Labrador-presentation.pptx](docs/Labrador-presentation.pptx) (10 slides, speaker notes included)
 
-Data lives in two databases: **PostgreSQL** for the relational core (accounts,
-categories, tasks, tickets, announcements) and **MongoDB** for data whose shape
-varies or that piles up: `equipment`, `notifications` (expire after 30 days),
-`audit_logs` (the change history) and `ticket_threads` (the discussion on each
-ticket).
+---
 
-| Compose file               | Purpose                                                      |
-| -------------------------- | ------------------------------------------------------------ |
-| `docker-compose.dev.yaml`  | Local development — source bind-mounted, hot reload          |
-| `docker-compose.prod.yaml` | Production — built images, multi-worker server, auto-restart |
+## Contents
+1. [The problem and the solution](#1-the-problem-and-the-solution)
+2. [Tech stack](#2-tech-stack)
+3. [System architecture](#3-system-architecture)
+4. [Database design](#4-database-design)
+5. [Transactions & rollback](#5-transactions--rollback)
+6. [CRUD coverage](#6-crud-coverage)
+7. [Setup & running locally](#7-setup--running-locally)
+8. [Environment variables](#8-environment-variables)
+9. [API reference](#9-api-reference)
+10. [Project structure](#10-project-structure)
+11. [Testing & screenshots](#11-testing--screenshots)
 
-The database is part of the stack rather than a hosted service, so there is
-nothing to sign up for and no keys to hand around. The backend owns both
-halves of a login: passwords are bcrypt hashes in `auth.users`, and signing in
-at `POST /auth/login` returns a JWT the frontend sends as a bearer token.
+---
 
-## Prerequisites
+## 1. The problem and the solution
 
-- [Docker Engine](https://docs.docker.com/engine/install/) 20.10+ with Docker Compose v2 (`docker compose`, with a space)
+| Problem in the lab today | How Labrador solves it |
+|---|---|
+| Requests (experiment setup, maintenance, access, consumables, "fix this script") are lost in email/chat | One **request queue** with type, priority, status, assignee and due date |
+| Priorities are unclear | Requests are sorted urgent → low; staff see an **unassigned / assigned-to-me queue** |
+| Follow-up is hard to track | Every request has a **discussion thread** with attachments, and every change triggers **notifications** |
+| Equipment gets double-booked or used while broken | **Bookings** check overlaps inside a locked SQL transaction; equipment in maintenance cannot be booked |
+| Consumables run out unnoticed | Live **inventory** with reorder levels, low-stock alerts, and an atomic **cart → order** checkout |
+| No visibility of resource use over time | **Usage & insights**: requests per week, resolution time, equipment hours, consumables spend, activity |
+| New members don't know what's going on or how to ask for help | **Dashboard** + pinned **announcements** + guided **New request** form |
 
-Node.js and Python are **not** needed on your machine — both run in containers.
+Roles: **member** (file requests, book, order, comment), **staff** (triage, manage equipment/inventory,
+log maintenance, post announcements), **admin** (everything + user management + rollback demo switches).
 
-```bash
-docker --version
-docker compose version
-```
+## 2. Tech stack
 
-## 1. Clone and configure
+| Layer | Technology |
+|---|---|
+| Frontend | React 18, Vite 6, React Router 6, Tailwind CSS 4, Recharts, lucide-react icons, self-hosted fonts (`@fontsource`) |
+| Backend | Node.js (ESM), Express 5, `mysql2/promise`, Mongoose 9, `jsonwebtoken` (httpOnly cookie), `bcryptjs`, `multer` |
+| Relational DB | **MySQL 8.4** (InnoDB, foreign keys, CHECK constraints, row locks) |
+| Document DB | **MongoDB 7** as a single-node **replica set** (`rs0`) — required for multi-document transactions |
+| Files | Stored on the server's local disk in `server/uploads/{avatars,equipment,attachments}` |
+| Infrastructure | Docker Compose for both databases |
 
-```bash
-git clone https://github.com/PathadonAougsk/ISP.git
-cd ISP
-cp source/.env.sample source/.env
-```
+**Fully self-contained:** no external APIs, no cloud databases, no CDN, no third-party image hosting.
+Fonts and icons are bundled from npm.
 
-Fill in `source/.env`. It is the **only** env file; both services and both compose files read it. It's gitignored, so a fresh clone won't have one.
+## 3. System architecture
 
-| Key                         | Used by           | Notes                                                           |
-| --------------------------- | ----------------- | --------------------------------------------------------------- |
-| `POSTGRES_USER`             | postgres          | Role the database is created with                               |
-| `POSTGRES_PASSWORD`         | postgres          | Its password — fine to leave as the sample locally              |
-| `POSTGRES_DB`               | postgres          | Database name                                                   |
-| `DATABASE_URL`              | backend           | `postgresql+asyncpg://…`; host `postgres` in compose             |
-| `MONGO_INITDB_ROOT_USERNAME` / `_PASSWORD` | mongo | Root user, created on the container's first run only |
-| `MONGO_URL`                 | backend           | `mongodb://user:pass@mongo:27017/?authSource=admin` in compose  |
-| `MONGO_DB`                  | backend, optional | Database name. Default `isp`                                    |
-| `JWT_SECRET`                | backend           | Signs the access tokens. 32+ chars: `openssl rand -hex 32`      |
-| `ACCESS_TOKEN_TTL_MINUTES`  | backend, optional | How long a login lasts. Default 720                             |
-| `NEXT_PUBLIC_API_URL`       | frontend          | `http://localhost:8100` locally; your public API URL in prod    |
-| `CORS_ORIGINS`              | backend (prod)    | Comma-separated allowed origins, default `http://localhost:3100` |
-| `WEB_CONCURRENCY`           | backend (prod)    | Server workers, default `2`                                     |
-| `TUNNEL_TOKEN`              | tunnel (prod)     | Cloudflare Tunnel token, only with `--profile tunnel`           |
+![System architecture](docs/diagrams/architecture.png)
 
-The three `POSTGRES_*` values only take effect the first time the container
-starts, because that is when it creates the database. Changing them later
-means `docker compose down -v` and starting over.
+The React SPA talks JSON to the Express API (in development Vite proxies `/api` and `/uploads` so
+cookies stay same-origin). Routes use a MySQL connection pool and Mongoose; multi-step workflows go
+through **transaction services** that coordinate both databases. Uploaded files are written to disk
+by multer and served statically. See [`docs/diagrams/src/`](docs/diagrams/src) for the Mermaid sources.
 
-`JWT_SECRET` is the only thing standing behind every login, so generate a real
-one and keep it out of the frontend. Anything prefixed `NEXT_PUBLIC_` is
-inlined into the browser bundle, which is why no key there is a secret.
+## 4. Database design
 
-How each side picks the file up:
+### 4.1 MySQL — 6 tables ([ER diagram](docs/diagrams/er-diagram.png), [schema SQL](server/db/migrations/001_schema.sql))
 
-- **Backend** — `load_dotenv()` walks up from `source/backend/app/` and finds `source/.env`.
-- **Docker / CI** — compose passes `env_file: "./source/.env"` to both services; real environment variables always win over the file.
+![ER diagram](docs/diagrams/er-diagram.png)
 
-## 2. Run locally (development)
+| Table | Role | Key constraints |
+|---|---|---|
+| `users` | Lab members and roles | PK `user_id`, UNIQUE `email`, ENUM `role` |
+| `equipment` | Shared instruments | PK, ENUM `status`, indexed |
+| `consumables` | Inventory | PK, UNIQUE `name`, **CHECK `stock_quantity >= 0`** |
+| `requests` | Every ticket / request | FK requester → users (CASCADE), FK assignee → users (SET NULL), FK equipment (SET NULL) |
+| `request_items` | Junction: consumables on an order | FK → requests (CASCADE), FK → consumables (**RESTRICT**), CHECK `quantity > 0`, UNIQUE (request, consumable) |
+| `equipment_bookings` | Time-slot reservations | FK → equipment, users, requests; **CHECK `end_time > start_time`**, index on (equipment, start, end) |
 
-```bash
-docker compose -f docker-compose.dev.yaml --env-file source/.env up -d
-```
+### 4.2 MongoDB — 6 collections ([schema diagram](docs/diagrams/nosql-schema.png), [models](server/src/models))
 
-The first run builds both images and takes a few minutes. Then open:
+![NoSQL schema](docs/diagrams/nosql-schema.png)
 
-- Frontend: <http://localhost:3100>
-- Backend: <http://localhost:8100> (health check at `/health`)
-- Swagger UI: <http://localhost:8100/docs>
+| Collection | Why it is a document, not a row |
+|---|---|
+| `activity_logs` | Append-only, high-volume audit trail; `metadata` has a different shape per action |
+| `request_comments` | Thread messages with embedded `attachments[]` and `reactions[]` arrays |
+| `notifications` | Per-user inbox, written often, read/dismissed independently |
+| `consumable_carts` | Temporary draft order (one doc per user) with an embedded `items[]` array |
+| `maintenance_logs` | **Schemaless `readings`** — a pH meter stores slope/offset, a centrifuge stores rpm/temp |
+| `announcements` | Notice board posts with `tags[]`, pinning and audience |
 
-The backend creates any missing tables when it starts, so a brand new volume
-needs no migration step.
+MongoDB documents reference MySQL rows by their integer IDs (`userId`, `requestId`, `equipmentId`,
+`consumableId`); denormalised names (`userName`) are stored for fast reads.
 
-### Create the first login
+### 4.3 Why hybrid?
+* **MySQL** where correctness matters most: money-like quantities, stock that must never go negative,
+  bookings that must never overlap, referential integrity between users/requests/equipment.
+* **MongoDB** where the shape varies or grows fast: logs, threads, notifications, instrument readings,
+  carts — no migrations needed when a new instrument records a new field.
 
-A fresh database has no accounts in it, and every other way of creating one
-needs an admin to be signed in already. Make the Lab Owner once:
+## 5. Transactions & rollback
 
-```bash
-docker compose exec fastapi \
-  uv run python -m app.create_owner --username owner --email owner@example.com
-```
+![Checkout sequence](docs/diagrams/checkout-sequence.png)
 
-It asks for a password (or reads `OWNER_PASSWORD`), and that email and
-password are what you sign in with at <http://localhost:3100/auth>. Everyone
-else is created from the app, by an admin.
+### 5.1 Consumables checkout — hybrid MySQL + MongoDB ([code](server/src/services/transactions/submitConsumablesOrder.js))
+1. Read the cart from MongoDB.
+2. **MySQL transaction:** `BEGIN` → `SELECT … FOR UPDATE` on each consumable → verify stock →
+   `UPDATE` deduct stock → `INSERT requests` → `INSERT request_items` → `COMMIT`.
+   Any error (e.g. insufficient stock) → **`ROLLBACK`**: nothing is saved, the cart is kept.
+3. **MongoDB transaction:** `startTransaction()` → clear the cart → insert `activity_logs` →
+   insert `notifications` → `commitTransaction()`.
+   Any error → **`abortTransaction()`** *and* a **compensating MySQL transaction** that restores
+   stock and deletes the request, so the two databases never disagree.
 
-Run it again with the same email to reset that password and put the account
-back to an active Lab Owner — the way back in if nobody can sign in.
+### 5.2 Equipment booking ([code](server/src/services/transactions/bookEquipment.js))
+`BEGIN` → lock the equipment row (`FOR UPDATE`) → reject if under maintenance/retired → look for an
+overlapping active booking → `INSERT` → `COMMIT`, otherwise `ROLLBACK`. Locking serialises two people
+trying to book the same slot at the same time. Reschedules use the same check.
 
-### Sample data
+### 5.3 Other atomic operations
+* Deleting an open consumables request returns its stock in the same transaction.
+* Changing / removing an order line adjusts stock and the line together.
 
-To have something to click through, fill the database with 8 sample tickets
-(some accepted into tasks, one rejected, several with discussion threads):
+### 5.4 Demonstrating rollback
+Admins see a **"Rollback demo"** selector on the cart and booking forms that forces a failure at a
+chosen step (`after_stock_deduct`, `after_sql_commit`, `after_booking_insert`). Every transactional
+response returns a **step-by-step trace** that the UI renders, and the **Database inspector** page
+shows live row/document counts for before/after proof. See screenshots 14–27.
 
-```bash
-docker compose -f docker-compose.dev.yaml --env-file source/.env exec fastapi \
-  uv run python -m app.seed_tickets
-```
+## 6. CRUD coverage
 
-It needs at least one active **Lab User** to file them and a **Lab Owner** or
-**Lab Admin** to judge them, so create the owner first and a member from
-*Settings → Users*. It goes through the same code as the app, so quotas,
-notifications, the audit log and tasks all behave as if people did it. Running
-it again skips tickets that are already there.
+Every entity in both databases has Create, Read, Update and Delete in the web UI:
 
-### When to rebuild
+| Entity | Create | Read | Update | Delete |
+|---|---|---|---|---|
+| `users` | Register; admin "Add member" | Lab members, profile | Profile, password, avatar; admin role | Admin delete |
+| `equipment` | Add equipment (+ photo) | Catalog, detail with joins | Edit, status, photo | Delete |
+| `consumables` | Add item | Inventory, low-stock filter | Edit stock / cost / reorder level | Delete (blocked by FK if ordered) |
+| `requests` | New request form; checkout | List with filters, detail | Status, priority, assignee, edit | Delete |
+| `request_items` | Checkout | Order detail | Change quantity | Remove line |
+| `equipment_bookings` | Book a slot | My / all bookings, schedule | Reschedule, cancel | Delete |
+| `activity_logs` | Written on every action | Activity log with filters | Admin annotation | Purge entry |
+| `request_comments` | Post (+ attachments) | Thread on request | Edit, react | Delete |
+| `notifications` | Generated by events | Notifications page, bell | Mark read / unread / all | Dismiss |
+| `consumable_carts` | Add to cart | Cart page | Change quantity | Remove item, clear cart |
+| `maintenance_logs` | Log maintenance | History per equipment / all | Edit (incl. readings) | Delete |
+| `announcements` | Post | Board, dashboard | Edit, pin / unpin | Delete |
 
-Source folders are bind-mounted, so saving a file hot-reloads inside the container. Rebuild only after changing a `Dockerfile*`, `package.json`, or Python dependencies:
+## 7. Setup & running locally
 
-```bash
-docker compose -f docker-compose.dev.yaml --env-file source/.env up -d --build
-```
-
-Handy commands (run `export COMPOSE_FILE=docker-compose.dev.yaml` once so you can drop the `-f`):
-
-```bash
-docker compose ps                         # status
-docker compose logs -f                    # all logs
-docker compose logs -f fastapi            # one service
-docker compose exec fastapi bash          # shell into the backend
-docker compose exec nextjs sh             # shell into the frontend
-docker compose exec nextjs npm install <package>
-docker compose exec fastapi uv run pytest # backend tests (live DB, cleans up)
-docker compose exec postgres psql -U postgres -d isp   # psql prompt
-docker compose exec mongo mongosh -u mongo -p mongo isp --authenticationDatabase admin   # mongosh
-docker compose down                       # stop and remove
-docker compose down -v                    # also clear volumes, database included
-```
-
-## 3. Run in production
-
-`docker-compose.prod.yaml` builds a Next.js standalone server, runs the backend with `fastapi run` on several workers as a non-root user, and runs PostgreSQL 17 and MongoDB 8 with their data in the `postgres-data` and `mongo-data` volumes. All of them have health checks and restart automatically. Neither database port is published; only the backend reaches them, over the compose network.
-
-### A shortcut first
-
-Every compose command for production needs the same two arguments, and
-forgetting `--env-file source/.env` fails with *"required variable … is missing
-a value"*. Define a shortcut once on the server:
+**Prerequisites:** Node.js ≥ 20 (developed on Node 26), Docker Desktop.
 
 ```bash
-echo "alias dc='docker compose -f docker-compose.prod.yaml --env-file source/.env'" >> ~/.bashrc
-source ~/.bashrc
+git clone https://github.com/Pandemonium-Abyss/ISP-x-Database.git && cd ISP-x-Database
 ```
-
-If Docker needs `sudo` on your server, put it in the alias
-(`alias dc='sudo docker compose …'`), or let your user run Docker without it:
-`sudo usermod -aG docker $USER`, then log out and back in. The commands below
-use `dc`.
-
-### Production `.env`
-
-Make it **on the server** — never copy your development one, it has the
-sample passwords. This writes matching, freshly generated database passwords
-into all four places they appear, and keeps a backup:
 
 ```bash
-git clone https://github.com/PathadonAougsk/ISP.git
-cd ISP
-cp source/.env.sample source/.env
-chmod 600 source/.env
-cp source/.env source/.env.bak
-
-set_env() {  # KEY VALUE: replace the line, or add it
-  if grep -q "^$1=" source/.env; then sed -i "s|^$1=.*|$1=$2|" source/.env
-  else echo "$1=$2" >> source/.env; fi
-}
-PG=$(openssl rand -hex 16); MG=$(openssl rand -hex 16)
-set_env POSTGRES_PASSWORD          "$PG"
-set_env DATABASE_URL               "postgresql+asyncpg://postgres:$PG@postgres:5432/isp"
-set_env MONGO_INITDB_ROOT_PASSWORD "$MG"
-set_env MONGO_URL                  "mongodb://mongo:$MG@mongo:27017/?authSource=admin"
-set_env JWT_SECRET                 "$(openssl rand -hex 32)"
-unset PG MG
+cp .env.example .env
 ```
-
-Then set the two addresses browsers use (your domain, or `http://<server-ip>:8100`
-and `:3100` without a tunnel):
 
 ```bash
-set_env NEXT_PUBLIC_API_URL https://api.<your-domain>
-set_env CORS_ORIGINS        https://app.<your-domain>
+npm run setup
 ```
-
-Things to know before the first start:
-
-- **Database passwords are fixed on the first start.** `POSTGRES_*` and
-  `MONGO_INITDB_*` are only read when the volumes are created. Changing them
-  later does not change the real password; the backend then fails with
-  *password authentication failed*. On a server with no data yet,
-  `dc down -v && dc up -d --build` starts over. Once there is real data, never
-  use `-v`.
-- **The password inside each URL must equal its `*_PASSWORD`.** Stick to
-  letters and digits (the `openssl rand -hex` output is fine) — `@`, `:` or `/`
-  break the URLs.
-- **Keep the database hosts as `@postgres:5432` and `@mongo:27017`**, not
-  `localhost`: those are the containers' names on the compose network.
-- **Back the file up** somewhere safe (a password manager). Lose `JWT_SECRET`
-  and everyone is signed out; lose the database passwords and you are locked
-  out of the data.
-
-### Start it
 
 ```bash
-dc up -d --build
-dc ps                          # everything "healthy"
-curl -f http://localhost:8100/health
-dc exec fastapi python -m app.create_owner --username owner --email owner@example.com
+npm run db:up
 ```
 
-`--build` matters: `NEXT_PUBLIC_*` values are baked into the frontend at
-**build** time, so rebuild after changing any of them. The production image
-has no `uv`, so scripts run with plain `python -m`. That includes the sample
-data, if you want it: `dc exec fastapi python -m app.seed_tickets` (see
-*Sample data* above for what it needs).
+```bash
+npm run reset
+```
 
-### Exposing it with Cloudflare Tunnel (optional)
+```bash
+npm run dev
+```
 
-The `tunnel` service publishes the app on your domain over HTTPS without
-opening any inbound ports, which works even behind NAT/CGNAT. It needs a domain
-whose DNS is on Cloudflare.
+Open **http://localhost:5173**. Demo accounts (password `password123`):
 
-1. **Zero Trust → Networks → Tunnels → Create a tunnel → Cloudflared.** Name
-   it, copy the **token** from the install command it shows, and do **not** run
-   that command — compose runs `cloudflared` for you.
-2. **Add two public hostnames** to that tunnel:
+| Role | Email |
+|---|---|
+| Admin | `admin@labrador.local` |
+| Staff | `somchai@labrador.local`, `mali@labrador.local` |
+| Member | `ben@labrador.local`, `nicha@labrador.local`, … |
 
-   | Subdomain | Service type | URL |
-   | --- | --- | --- |
-   | `app` (e.g. `labradorxdatabase`) | HTTP | `nextjs:3000` |
-   | `api` (e.g. `labradorxdatabase-api`) | HTTP | `fastapi:8000` |
+* `npm run db:up` starts MySQL on **3317** and MongoDB on **27028** (non-default ports so they don't
+  clash with local installs). The Mongo container initiates replica set `rs0` automatically.
+* `npm run reset` = `migrate` (drop + create the 6 tables) + `seed` (≈10 weeks of realistic data).
+* Production build: `npm run build` then `npm start` — Express serves the built SPA on port 4000.
+* Without Docker: point `.env` at your own MySQL 8 and a MongoDB **replica set** (transactions need one).
 
-   - Use the **ports inside Docker, 3000 and 8000** — not 3100/8100, and not
-     `localhost`. The tunnel runs in its own container on the compose network
-     and reaches the others by name; `localhost` there is the tunnel itself,
-     and you get a *502 Bad Gateway*.
-   - Pick **HTTP**: Cloudflare does the HTTPS for visitors; inside Docker it is
-     plain HTTP. (If the form has one "Service" box, type `http://nextjs:3000`.)
-   - Keep both names **one level** under your domain (`labradorxdatabase-api.example.com`,
-     not `api.labradorxdatabase.example.com`). Cloudflare's free certificate
-     only covers one level; deeper names get certificate errors.
+### 7.1 Deploy on a server with a Cloudflare Tunnel
 
-3. **In `source/.env`** (`set_env` is the helper from *Production `.env*` —
-   paste its definition again in a new terminal, or just edit the file with
-   `nano source/.env`):
+The whole stack (MySQL, MongoDB, the app, and `cloudflared`) runs in Docker Compose. The tunnel makes
+an **outbound** connection to Cloudflare, so the server needs **no open inbound ports**: the databases
+and the app are bound to `127.0.0.1` only.
 
+1. In Cloudflare **Zero Trust → Networks → Tunnels**, create a tunnel (type *Cloudflared*) and copy its token.
+2. In the tunnel's **Public Hostname** tab, add e.g. `labrador.example.com` → service `HTTP` → `app:4000`.
+3. On the server, copy the project, then in `.env` set:
    ```bash
-   set_env TUNNEL_TOKEN        <token>
-   set_env COMPOSE_PROFILES    tunnel     # starts the tunnel with every `dc up`
-   set_env NEXT_PUBLIC_API_URL https://<api-hostname>
-   set_env CORS_ORIGINS        https://<app-hostname>
+   JWT_SECRET=<long random string>          # openssl rand -hex 32
+   PUBLIC_URL=https://labrador.example.com
+   CLOUDFLARE_TUNNEL_TOKEN=<token from step 1>
+   ```
+4. Start everything and load the demo data (first run only):
+   ```bash
+   npm run tunnel:up      # docker compose --profile tunnel up -d --build
+   npm run stack:reset    # migrate + seed inside the app container
    ```
 
-   To keep the token out of your shell history:
-   `read -rsp "Token: " T && echo && set_env TUNNEL_TOKEN "$T" && unset T`.
+| Script | What it does |
+|---|---|
+| `npm run app:up` | DBs + app container on `http://localhost:4000` (no tunnel) |
+| `npm run tunnel:up` | DBs + app + Cloudflare Tunnel |
+| `npm run stack:logs` | Follow app and tunnel logs |
+| `npm run stack:down` | Stop everything (data volumes are kept) |
 
-4. **Rebuild and check:**
+## 8. Environment variables
 
-   ```bash
-   dc up -d --build
-   dc logs tunnel --tail 20      # look for "Registered tunnel connection"
-   ```
+| Variable | Default | Purpose |
+|---|---|---|
+| `MYSQL_HOST` / `MYSQL_PORT` | `127.0.0.1` / `3317` | MySQL connection |
+| `MYSQL_DATABASE` / `MYSQL_USER` / `MYSQL_PASSWORD` | `labrador` / `labrador` / `labrador_pw` | MySQL credentials (also used by Docker Compose) |
+| `MYSQL_ROOT_PASSWORD` | `labrador_root` | Root password for the MySQL container |
+| `MONGO_PORT` | `27028` | Host port for MongoDB |
+| `MONGO_URI` | `mongodb://127.0.0.1:27028/labrador?replicaSet=rs0&directConnection=true` | MongoDB connection |
+| `PORT` | `4000` | API port |
+| `JWT_SECRET` | — | Secret for signing session cookies — **change it** |
+| `CLIENT_ORIGIN` | `http://localhost:5173` | Allowed CORS origin |
+| `UPLOAD_DIR` | `uploads` | Local folder (relative to `server/`) for uploaded files |
+| `APP_PORT` | `4000` | Host port for the app container (bound to localhost) |
+| `PUBLIC_URL` | `http://localhost:4000` | Public URL of the deployed app (used as allowed origin in Docker) |
+| `CLOUDFLARE_TUNNEL_TOKEN` | — | Token of your Cloudflare Tunnel (only needed for `tunnel:up`) |
 
-Once the tunnel works, nobody needs 3100/8100 from outside; close them in the
-server's firewall if you like.
+## 9. API reference
 
-### Two copies on one server
+All endpoints are under `/api`, return JSON, and (except auth) require the session cookie.
+`🔒S` = staff or admin, `🔒A` = admin only. DB column: which engine is touched.
 
-Each clone is its own compose project (named after its folder), with its own
-containers, network and volumes, so an older copy can keep running next to a
-new one. Two rules:
+| Method | Path | Description | DB |
+|---|---|---|---|
+| POST | `/auth/register` | Create member account | MySQL (+Mongo log/notification) |
+| POST | `/auth/login` · `/auth/logout` | Start / end session | MySQL |
+| GET | `/auth/me` | Current user | MySQL |
+| GET | `/users` | Member directory with request counts | MySQL |
+| POST | `/users` 🔒A | Add member | MySQL |
+| PATCH | `/users/me` | Update name / email / password | MySQL |
+| POST | `/users/me/avatar` | Upload avatar (multipart `avatar`) | MySQL + disk |
+| PATCH · DELETE | `/users/:id` 🔒A | Change role / delete | MySQL |
+| GET | `/equipment?status&category&q` | Catalog with counts | MySQL |
+| GET | `/equipment/:id` | Detail + bookings + requests + last maintenance | both |
+| POST · PATCH | `/equipment[/:id]` 🔒S | Create / update (multipart, optional `image`) | MySQL + disk |
+| DELETE | `/equipment/:id` 🔒S | Delete (cascades bookings, removes maintenance logs) | both |
+| GET | `/consumables?low=1&q` | Inventory | MySQL |
+| POST · PATCH · DELETE | `/consumables[/:id]` 🔒S | Manage inventory | MySQL |
+| GET | `/requests?status&type&priority&mine&assigned&q&open` | Filtered list (joins) | both |
+| GET | `/requests/:id` | Detail with items and bookings | MySQL |
+| POST | `/requests` | Create (non-consumables types) | both |
+| PATCH | `/requests/:id` | Update fields / status / assignee | both |
+| DELETE | `/requests/:id` | Delete, restoring stock (transaction) | both |
+| PATCH · DELETE | `/requests/:id/items/:itemId` | Change / remove line, adjusting stock (transaction) | MySQL |
+| GET · POST | `/requests/:id/comments` | Thread / post (multipart `files[]`) | MongoDB + disk |
+| PATCH · DELETE | `/comments/:id` | Edit / delete own comment | MongoDB |
+| POST | `/comments/:id/react` | Toggle emoji reaction | MongoDB |
+| GET | `/bookings?scope=mine\|all&equipmentId&upcoming=1` | Bookings | MySQL |
+| POST | `/bookings` | **Book (transaction)** · admin may pass `simulateFailure` | both |
+| PATCH | `/bookings/:id` | Reschedule (transaction) or set status | MySQL |
+| DELETE | `/bookings/:id` | Delete booking | MySQL |
+| GET · DELETE | `/cart` | View / clear cart | MongoDB |
+| POST | `/cart/items` | Add item | MongoDB |
+| PATCH · DELETE | `/cart/items/:consumableId` | Change qty / remove | MongoDB |
+| POST | `/cart/checkout` | **Hybrid order transaction** · admin may pass `simulateFailure` | both |
+| GET | `/notifications?unread=1` | Inbox + unread count | MongoDB |
+| PATCH | `/notifications/:id/read` | Mark read / unread | MongoDB |
+| POST | `/notifications/read-all` | Mark all read | MongoDB |
+| DELETE | `/notifications/:id` | Dismiss | MongoDB |
+| GET | `/maintenance?equipmentId` | Maintenance history | both |
+| POST · PATCH · DELETE | `/maintenance[/:id]` 🔒S | Manage logs (flexible `readings`) | MongoDB |
+| GET | `/announcements` | Notice board | MongoDB |
+| POST · PATCH · DELETE | `/announcements[/:id]` 🔒S | Manage posts | MongoDB |
+| GET | `/activity?action&userId&q&page` 🔒S | Audit log | MongoDB |
+| PATCH · DELETE | `/activity/:id` 🔒A | Annotate / purge | MongoDB |
+| GET | `/dashboard` | Dashboard summary | both |
+| GET | `/stats?weeks=10` | Usage aggregates | both |
+| GET | `/db-state` | Live counts for both engines | both |
 
-- **Different host ports.** Only one thing can hold a port on the machine; if
-  the other copy has 3000/8000, this one uses 3100/8100 (*port is already
-  allocated* means they clash).
-- **Different tunnels.** Give each copy its own tunnel and token. Two copies
-  sharing one token become two connectors of the *same* tunnel, and Cloudflare
-  sends each visitor to either copy at random.
+Errors return `{ "error": "…" }`; transactional endpoints also return `trace[]`, `rolledBack`, and
+for checkout `stockBefore[]` / `stockAfter[]`.
 
-### Updating production
+## 10. Project structure
 
-```bash
-git pull
-dc up -d --build
+```
+.
+├── docker-compose.yml          MySQL 8.4 + MongoDB 7 (replica set)
+├── .env.example
+├── package.json                root scripts (setup, db:up, reset, dev, docs:*)
+├── server/
+│   ├── db/migrations/001_schema.sql   relational schema
+│   ├── db/migrate.js · db/seed.js     migration + seed scripts
+│   ├── src/config/              mysql.js (pool, withSqlTransaction) · mongo.js (withMongoTransaction)
+│   ├── src/middleware/          auth (JWT, roles) · upload (multer, local disk)
+│   ├── src/models/              6 Mongoose models
+│   ├── src/routes/              REST controllers per resource
+│   ├── src/services/            activity/notification helpers + transactions/
+│   ├── test/crud-smoke.js       end-to-end CRUD + transaction test
+│   └── uploads/                 locally stored images & attachments
+├── client/
+│   └── src/{api, components, context, lib, pages}
+├── docs/
+│   ├── diagrams/                PNG/SVG + Mermaid sources
+│   ├── screenshots/             38 annotated screenshots (see its README)
+│   └── presentation-outline.md  10-slide outline + video script
+└── tools/                       diagram renderer + screenshot capture (local Chrome)
 ```
 
-Data stays: it is in the volumes, which `up --build` never touches. Tables,
-collections, indexes and one-off migrations are applied by the backend on
-startup.
+## 11. Testing & screenshots
 
-## How the services talk to each other
+```bash
+npm --prefix server test
+```
+Runs 59 end-to-end checks against the running API: CRUD for all 12 entities, local file uploads,
+FK/CHECK constraint enforcement, booking overlap, and all four checkout outcomes (commit,
+insufficient stock, failure after deduction, failure after SQL commit with compensation).
 
-- **From the browser** (client-side fetches): use `NEXT_PUBLIC_API_URL` — `http://localhost:8100` locally.
-- **From inside a container** (SSR, server components): use `http://fastapi:8000`. Compose resolves service names as hostnames; `localhost` inside a container means that container.
-
-## Troubleshooting
-
-**`env file ./source/.env not found`** or **`set in source/.env`**: you skipped step 1, or left out `--env-file source/.env`.
-
-**Port 3100 or 8100 already in use** — something else is bound to that port. Stop it, or change the host side of the mapping in `docker-compose.dev.yaml` (the left number in `"3100:3000"`).
-
-**`failed to bind host port 0.0.0.0:5432: address already in use`** — a
-PostgreSQL on your own machine is holding 5432. The container is published on
-5433 for exactly this reason, so if you see this, something took 5433 as well:
-change the left number in the `postgres` port mapping. Nothing inside compose
-cares, because the backend reaches the database as `postgres:5432` on the
-compose network. On Linux the usual culprit is the system service —
-`systemctl status postgresql` tells you, and `sudo systemctl disable --now
-postgresql` frees 5432 for good if you would rather have it.
-
-**`password authentication failed for user "postgres"`** (backend unhealthy,
-frontend and tunnel never start) — the password in `DATABASE_URL` is not the
-one the database was created with. Check the two match in `source/.env`; if the
-database was first started with different values, see *Database passwords are
-fixed on the first start*. MongoDB's version of this is `Authentication failed`.
-
-**`dependency failed to start: container … fastapi … is unhealthy`** — the
-backend could not start; the reason is in `dc logs fastapi --tail 40`.
-
-**`port is already allocated`** — something on the machine already holds that
-host port, often another copy of this app (`docker ps` shows it). Change the
-left number of the mapping, or stop the other thing.
-
-**Tunnel site doesn't load** — *502 Bad Gateway*: the hostname's service is
-wrong; it must be `http://nextjs:3000` / `http://fastapi:8000`. *Site can't be
-reached / no such host*: the public hostname was never saved to the tunnel, or
-a DNS record with that name already existed — check Cloudflare's DNS records
-for a CNAME to `….cfargotunnel.com`. *Certificate error*: the hostname is two
-levels deep.
-
-**Frontend can't reach the backend**: check whether the call runs in the browser or on the server, and use the matching hostname above. In prod, `CORS_ORIGINS` must be the frontend's address exactly (`https://`, no trailing slash), and `NEXT_PUBLIC_API_URL` the API's — then rebuild.
-
-**Changed a `NEXT_PUBLIC_*` value but prod didn't pick it up**: those are build-time values; rerun with `--build`.
-
-**`Cannot find module` after adding a frontend dependency (dev)**: install it inside the container, or rebuild with `--build`.
-
-**`JWT_SECRET is only N characters`** — the backend refuses to start with a
-signing key short enough to guess. Put a real one in `source/.env`:
-`openssl rand -hex 32`.
-
-**Nothing can sign in on a new clone** — the database is empty until you create
-the Lab Owner; see *Create the first login*.
-
-**Everyone is signed out after a restart** — tokens are signed with
-`JWT_SECRET`, so changing it invalidates every token already handed out.
-
-**Something is deeply stuck** — `docker compose -f docker-compose.dev.yaml down -v`, then bring it back up with `--build`. Note that `-v` also drops the database volume, so the accounts go with it and the Lab Owner has to be created again.
-
-## Notes
-
-- `source/.env.sample` is committed (an exception to the `.env*` gitignore rule). Keep it in sync when you add a key.
-- CI builds both Docker images on every pull request to `main` (`.github/workflows/Docker-build-check.yml`).
+```bash
+npm run docs:screenshots
+```
+Regenerates every image in [`docs/screenshots/`](docs/screenshots/README.md) (needs Google Chrome and a freshly reset database).
+`npm run docs:diagrams` re-renders the diagrams from their Mermaid sources.
