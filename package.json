@@ -1,0 +1,30 @@
+{
+  "name": "labrador",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Labrador \u2014 lab operations hub (hybrid MySQL + MongoDB web app)",
+  "scripts": {
+    "setup": "npm install && npm --prefix server install && npm --prefix client install",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "app:up": "docker compose --profile app up -d --build",
+    "tunnel:up": "docker compose --profile tunnel up -d --build",
+    "stack:down": "docker compose --profile tunnel down",
+    "stack:reset": "docker compose --profile app run --rm app sh -c \"node db/migrate.js && node db/seed.js\"",
+    "stack:logs": "docker compose --profile tunnel logs -f app cloudflared",
+    "migrate": "npm --prefix server run migrate",
+    "seed": "npm --prefix server run seed",
+    "reset": "npm run migrate && npm run seed",
+    "dev": "concurrently -n api,web -c cyan,yellow \"npm --prefix server run dev\" \"npm --prefix client run dev\"",
+    "build": "npm --prefix client run build",
+    "start": "npm --prefix server start",
+    "docs:diagrams": "node tools/render-diagrams.mjs",
+    "docs:screenshots": "node tools/capture-screenshots.mjs",
+    "docs:slide-assets": "node tools/capture-slide-assets.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.7",
+    "mermaid": "^12.3.0",
+    "puppeteer-core": "^25.18.1"
+  }
+}

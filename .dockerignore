@@ -1,0 +1,9 @@
+**/node_modules
+client/dist
+server/uploads
+docs
+tools
+.git
+.claude
+.env
+**/.DS_Store

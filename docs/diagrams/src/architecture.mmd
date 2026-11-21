@@ -1,0 +1,22 @@
+flowchart LR
+  UI["<b>Web browser</b><br/>React 18 SPA · Vite<br/>React Router · Tailwind · Recharts"]
+  subgraph Server["Node.js API server · Express"]
+    direction TB
+    MW["<b>Middleware</b><br/>JWT cookie auth · role checks<br/>multer uploads · error mapper"]
+    RT["<b>REST routes /api/*</b><br/>requests · equipment · bookings<br/>consumables · cart · comments<br/>notifications · maintenance<br/>announcements · activity · stats"]
+    TX["<b>Transaction services</b><br/>submitConsumablesOrder<br/>bookEquipment"]
+    FS[("<b>Local file storage</b><br/>server/uploads/<br/>avatars · equipment · attachments")]
+    MW --> RT --> TX
+    RT -- "multer diskStorage" --> FS
+  end
+  subgraph Docker["Docker Compose · self-hosted"]
+    direction TB
+    MY[("<b>MySQL 8.4</b><br/>6 tables · InnoDB<br/>PK / FK / CHECK")]
+    MG[("<b>MongoDB 7</b><br/>replica set rs0<br/>6 collections")]
+  end
+  UI -- "JSON over HTTP<br/>httpOnly cookie" --> MW
+  UI -. "GET /uploads/*" .-> FS
+  RT -- "mysql2 pool" --> MY
+  RT -- "Mongoose" --> MG
+  TX -- "BEGIN · FOR UPDATE<br/>COMMIT / ROLLBACK" --> MY
+  TX -- "startTransaction<br/>commit / abort" --> MG

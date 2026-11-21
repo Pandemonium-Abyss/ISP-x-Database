@@ -1,0 +1,94 @@
+@import "tailwindcss";
+@import "@fontsource-variable/instrument-sans/wdth.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+
+/*
+  Labrador — "labeling tape on a clean bench".
+  Cool, clinical surfaces stay quiet; the colour lives in tape strips,
+  the way a lab colour-codes racks, tubes and shelves.
+*/
+@theme {
+  --font-sans: "Instrument Sans Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --color-bench: #edf0f1;   /* page background: epoxy-white bench */
+  --color-paper: #edf0f1;   /* legacy alias */
+  --color-surface: #ffffff; /* a sheet laid on the bench */
+  --color-line: #d4dadd;
+  --color-ink: #17212b;
+  --color-muted: #5b6770;
+
+  /* nitrile-glove cobalt: actions, links, selection */
+  --color-brand-50: #eef1fc;
+  --color-brand-100: #dbe1f8;
+  --color-brand-600: #3a55cc;
+  --color-brand-700: #2d47bb;
+  --color-brand-800: #233a9c;
+  --color-brand-900: #1a2b72;
+
+  /* yellow labeling tape — the Labrador mark */
+  --color-tape-50: #fdf6db;
+  --color-tape-100: #f8e7a3;
+  --color-tape-400: #f4cf4e;
+  --color-tape-600: #8f6400;
+
+  --color-danger: #c63a28;
+  --color-success: #2b7a4b;
+}
+
+html, body, #root { height: 100%; }
+body {
+  background: var(--color-bench);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Condensed instrument-panel lettering for headings. */
+@utility font-display {
+  font-family: var(--font-sans);
+  font-stretch: 80%;
+  letter-spacing: -0.015em;
+}
+/* Tabular figures for IDs, counts and times (instead of a monospace face). */
+@utility tnum {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+}
+
+:focus-visible { outline: 2px solid var(--color-brand-600); outline-offset: 2px; border-radius: 4px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+@layer components {
+  .input {
+    @apply w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink outline-none transition
+           placeholder:text-muted/70 focus:border-brand-600 focus:ring-2 focus:ring-brand-100;
+  }
+  .label { @apply mb-1.5 block text-[13px] font-medium text-muted; }
+  .card { @apply rounded-md border border-line bg-surface; }
+  .table-base { @apply w-full text-left text-sm; }
+  .table-base th { @apply border-b border-line bg-bench/50 px-3 py-2 text-[13px] font-medium text-muted; }
+  .table-base td { @apply border-b border-line/70 px-3 py-2.5 align-middle; }
+  .table-base tbody tr:hover { @apply bg-brand-50/50; }
+
+  /*
+    A strip of labeling tape: flat colour, slightly torn ends.
+    Used for categorical labels (request type, urgent) and the dashboard summary.
+  */
+  .tape {
+    --tape: var(--color-tape-400);
+    @apply inline-flex items-center whitespace-nowrap px-2 py-px text-xs font-semibold;
+    background: var(--tape);
+    color: var(--tape-ink, var(--color-ink));
+    clip-path: polygon(
+      0 12%, 3px 0, calc(100% - 2px) 6%, 100% 0, calc(100% - 3px) 38%, 100% 62%,
+      calc(100% - 2px) 100%, 4px 94%, 0 100%, 2px 64%, 0 40%
+    );
+  }
+}

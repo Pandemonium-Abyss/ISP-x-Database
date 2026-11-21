@@ -1,0 +1,69 @@
+erDiagram
+  USERS ||--o{ REQUESTS : "files (requester_id)"
+  USERS |o--o{ REQUESTS : "is assigned (assignee_id)"
+  USERS ||--o{ EQUIPMENT_BOOKINGS : makes
+  EQUIPMENT |o--o{ REQUESTS : "is subject of"
+  EQUIPMENT ||--o{ EQUIPMENT_BOOKINGS : "is booked in"
+  REQUESTS ||--o{ REQUEST_ITEMS : contains
+  CONSUMABLES ||--o{ REQUEST_ITEMS : "is ordered in"
+  REQUESTS |o--o{ EQUIPMENT_BOOKINGS : "may justify"
+
+  USERS {
+    int user_id PK
+    varchar email UK
+    varchar password_hash
+    varchar full_name
+    enum role "member|staff|admin"
+    varchar avatar_path
+    datetime created_at
+  }
+  EQUIPMENT {
+    int equipment_id PK
+    varchar name
+    varchar category
+    varchar location
+    enum status "available|in_use|maintenance|retired"
+    text description
+    varchar image_path
+    datetime created_at
+  }
+  CONSUMABLES {
+    int consumable_id PK
+    varchar name UK
+    varchar unit
+    int stock_quantity "CHECK >= 0"
+    int reorder_level
+    decimal unit_cost
+  }
+  REQUESTS {
+    int request_id PK
+    int requester_id FK
+    int assignee_id FK "nullable"
+    int equipment_id FK "nullable"
+    enum type "experiment_setup|maintenance|access|consumables|ticket"
+    varchar title
+    text description
+    enum priority "low|medium|high|urgent"
+    enum status "open|in_progress|waiting|resolved|closed"
+    date due_date
+    datetime resolved_at
+    datetime created_at
+    datetime updated_at
+  }
+  REQUEST_ITEMS {
+    int item_id PK
+    int request_id FK
+    int consumable_id FK
+    int quantity "CHECK > 0"
+    decimal unit_cost
+  }
+  EQUIPMENT_BOOKINGS {
+    int booking_id PK
+    int equipment_id FK
+    int user_id FK
+    int request_id FK "nullable"
+    datetime start_time
+    datetime end_time "CHECK end > start"
+    varchar purpose
+    enum status "booked|cancelled|completed"
+  }

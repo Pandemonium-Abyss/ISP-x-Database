@@ -1,0 +1,36 @@
+sequenceDiagram
+  autonumber
+  actor M as Member
+  participant UI as React UI
+  participant API as Express API
+  participant SQL as MySQL
+  participant DOC as MongoDB
+  M->>UI: Place order
+  UI->>API: POST /api/cart/checkout
+  API->>DOC: read consumable_carts (userId)
+  rect rgb(227, 239, 237)
+  note over API,SQL: Phase 1 — SQL transaction
+  API->>SQL: BEGIN
+  API->>SQL: SELECT … FROM consumables … FOR UPDATE
+  alt stock insufficient / any error
+    API->>SQL: ROLLBACK
+    API-->>UI: 409 + trace (nothing saved, cart kept)
+  else stock OK
+    API->>SQL: UPDATE consumables SET stock_quantity = stock_quantity - q
+    API->>SQL: INSERT requests · INSERT request_items
+    API->>SQL: COMMIT
+  end
+  end
+  rect rgb(251, 243, 228)
+  note over API,DOC: Phase 2 — MongoDB transaction
+  API->>DOC: startTransaction()
+  API->>DOC: clear cart · insert activity_logs · insert notifications
+  alt any Mongo error
+    API->>DOC: abortTransaction()
+    API->>SQL: compensating txn: restore stock, DELETE request
+    API-->>UI: 500 + trace (both DBs back to original state)
+  else ok
+    API->>DOC: commitTransaction()
+    API-->>UI: 201 { requestId, trace, stockBefore, stockAfter }
+  end
+  end
