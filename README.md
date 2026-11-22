@@ -1,8 +1,20 @@
 # Labrador — Laboratory Management System
 
-Labrador is a web-based laboratory management application designed to centralize laboratory operations, including user management, equipment management, consumable inventory, requests, bookings, and notifications.
+Labrador is a web app for running a research lab: user accounts, equipment and bookings, consumable inventory, requests, announcements, and notifications. It replaces the usual mix of spreadsheets, email, and chat threads.
 
-The application uses a **hybrid database architecture**, combining MySQL for relational data and MongoDB for flexible document-oriented data.
+It uses two databases. MySQL holds the relational data (users, equipment, inventory, requests, bookings), and MongoDB holds the document-style data (comments, carts, logs, notifications, announcements).
+
+---
+
+## Project Deliverables
+
+- **GitHub Repository:** [Pandemonium-Abyss/ISP-x-Database](https://github.com/Pandemonium-Abyss/ISP-x-Database) (complete source code and setup instructions in README)
+- **System Architecture Diagram:** [`architecture.png`](docs/diagrams/architecture.png)
+- **SQL ER Diagram:** [`er-diagram.png`](docs/diagrams/er-diagram.png)
+- **NoSQL Document Schema Diagram:** [`nosql-schema.png`](docs/diagrams/nosql-schema.png)
+- **Screenshots Documentation:** [`docs/screenshots/`](docs/screenshots/README.md) (UI features, CRUD actions, diagrams, and transaction/rollback proof)
+- **Presentation Video:** [Watch Labrador Presentation](https://youtu.be/5izrg2WZO20)
+- **Presentation Slides:** [`docs/Labrador-presentation.pdf`](docs/Labrador-presentation.pdf)
 
 ---
 
@@ -10,42 +22,35 @@ The application uses a **hybrid database architecture**, combining MySQL for rel
 
 ### Problem Statement
 
-Research laboratories often rely on spreadsheets, emails, and chat applications to manage daily activities. This makes it difficult to track requests, manage shared equipment, monitor inventory, and coordinate laboratory members.
-
-Labrador provides a centralized platform to manage these operations through a single web application.
+Research labs often track requests, shared equipment, and inventory across spreadsheets, emails, and chat apps. Things get lost, equipment gets double-booked, and nobody knows what is left in stock. Labrador puts these tasks in one web application.
 
 ### User Roles
 
-| Role   | Permissions                                                                         |
-| ------ | ----------------------------------------------------------------------------------- |
-| Member | Submit requests, book equipment, order consumables, and participate in discussions. |
-| Staff  | Manage requests, equipment, inventory, maintenance, and announcements.              |
-| Admin  | Access all features and manage users.                                               |
+| Role   | Permissions                                                                                             |
+| ------ | ------------------------------------------------------------------------------------------------------- |
+| Member | Submit requests, book equipment, order consumables, and comment on requests.                            |
+| Staff  | Everything a member can do, plus manage requests, equipment, inventory, maintenance, and announcements. |
+| Admin  | Access all features and manage users.                                                                   |
 
 ---
 
 ## 2. Technology Stack
 
-| Component      | Technology                       |
-| -------------- | -------------------------------- |
-| Frontend       | React 18, Vite 6, Tailwind CSS 4 |
-| Backend        | Node.js, Express 5               |
-| SQL Database   | MySQL 8.4                        |
-| NoSQL Database | MongoDB 7                        |
-| ORM / ODM      | mysql2, Mongoose                 |
-| Authentication | JWT, bcryptjs                    |
-| File Upload    | Multer                           |
-| Deployment     | Docker Compose                   |
+| Component   | Technology                       |
+| ----------- | -------------------------------- |
+| Frontend    | React 18, Vite 6, Tailwind CSS 4 |
+| Backend     | Node.js, Express 5               |
+| Databases   | MySQL 8.4, MongoDB 7             |
+| DB access   | mysql2, Mongoose                 |
+| Auth        | JWT, bcryptjs                    |
+| File upload | Multer                           |
+| Deployment  | Docker Compose                   |
 
 ---
 
 ## 3. System Architecture
 
-Labrador consists of three main components:
-
-1. **Frontend:** React application that provides the user interface.
-2. **Backend:** Express REST API that handles application logic and database operations.
-3. **Databases:** MySQL and MongoDB for storing application data.
+The React frontend talks to an Express REST API. The API reads and writes both databases and stores uploaded files on local disk.
 
 ![System Architecture](docs/diagrams/architecture.png)
 
@@ -53,95 +58,61 @@ Labrador consists of three main components:
 
 ## 4. Database Design
 
-Labrador uses two databases to store different types of information.
+### 4.1 MySQL
 
-### 4.1 MySQL — Relational Database
+Structured data that needs relationships and integrity. Six tables, with primary and foreign keys, unique and CHECK constraints, and indexes on frequently queried columns.
 
-MySQL stores structured data that requires relationships and data integrity.
-
-The database contains six tables:
-
-| Table                | Description                                       |
-| -------------------- | ------------------------------------------------- |
-| `users`              | Stores user accounts and roles.                   |
-| `equipment`          | Stores laboratory equipment information.          |
-| `consumables`        | Stores consumable inventory and stock quantities. |
-| `requests`           | Stores laboratory requests and orders.            |
-| `request_items`      | Stores items associated with consumable orders.   |
-| `equipment_bookings` | Stores equipment reservations.                    |
-
-**Database Constraints:**
-
-- Primary keys and foreign keys.
-- Unique constraints.
-- CHECK constraints.
-- Indexes for frequently queried fields.
-- Referential integrity.
+| Table                | Description                      |
+| -------------------- | -------------------------------- |
+| `users`              | User accounts and roles          |
+| `equipment`          | Lab equipment                    |
+| `consumables`        | Consumable inventory and stock   |
+| `requests`           | Lab requests and orders          |
+| `request_items`      | Line items for consumable orders |
+| `equipment_bookings` | Equipment reservations           |
 
 **ER Diagram:**
 
 ![MySQL ER Diagram](docs/diagrams/er-diagram.png)
 
-### 4.2 MongoDB — NoSQL Database
+### 4.2 MongoDB
 
-MongoDB stores flexible document-oriented data.
+Data that varies in shape or changes often. Six collections.
 
-The database contains six collections:
-
-| Collection         | Description                                             |
-| ------------------ | ------------------------------------------------------- |
-| `activity_logs`    | Records application activities.                         |
-| `request_comments` | Stores request discussions, attachments, and reactions. |
-| `notifications`    | Stores user notifications.                              |
-| `consumable_carts` | Stores temporary shopping carts.                        |
-| `maintenance_logs` | Stores equipment maintenance records.                   |
-| `announcements`    | Stores laboratory announcements.                        |
-
-MongoDB supports flexible document structures and embedded arrays.
+| Collection         | Description                                 |
+| ------------------ | ------------------------------------------- |
+| `activity_logs`    | Audit trail of app activity                 |
+| `request_comments` | Request discussions, attachments, reactions |
+| `notifications`    | Per-user notifications                      |
+| `consumable_carts` | Temporary shopping carts                    |
+| `maintenance_logs` | Equipment maintenance records               |
+| `announcements`    | Lab announcements                           |
 
 **NoSQL Schema Diagram:**
 
 ![MongoDB Schema Diagram](docs/diagrams/nosql-schema.png)
 
-### 4.3 Hybrid Database Usage
-
-| MySQL              | MongoDB          |
-| ------------------ | ---------------- |
-| Users              | Activity Logs    |
-| Equipment          | Request Comments |
-| Consumables        | Notifications    |
-| Requests           | Consumable Carts |
-| Request Items      | Maintenance Logs |
-| Equipment Bookings | Announcements    |
-
-MySQL is used for structured relational data, while MongoDB is used for flexible documents.
-
 ---
 
 ## 5. Core Functionality
 
-Labrador provides the following features:
-
-- User registration, authentication, and role management.
-- Equipment management and equipment bookings.
-- Consumable inventory management.
-- Laboratory request submission and tracking.
-- Shopping cart and consumable checkout.
+- User registration, login, and role management.
+- Equipment management and bookings.
+- Consumable inventory with low-stock flags.
+- Request submission and tracking.
+- Shopping cart and consumables checkout.
 - Request discussions with file attachments.
 - Equipment maintenance records.
-- User notifications.
-- Laboratory announcements.
-- Activity logs and usage statistics.
+- Notifications and announcements.
+- Activity log and usage statistics.
 
 ---
 
 ## 6. CRUD Operations
 
-All 12 database entities support Create, Read, Update, and Delete operations through the application.
-
 | Entity             | Create               | Read               | Update            | Delete              |
 | ------------------ | -------------------- | ------------------ | ----------------- | ------------------- |
-| Users              | Register / Add user  | User directory     | Edit profile      | Delete user         |
+| Users              | Register / add user  | User directory     | Edit profile      | Delete user         |
 | Equipment          | Add equipment        | Equipment list     | Edit equipment    | Delete equipment    |
 | Consumables        | Add inventory        | Inventory list     | Update inventory  | Delete inventory    |
 | Requests           | Submit request       | Request list       | Update request    | Delete request      |
@@ -158,38 +129,36 @@ All 12 database entities support Create, Read, Update, and Delete operations thr
 
 ## 7. Transaction Management
 
-Labrador implements database transactions to maintain data consistency during multi-step operations.
+Two operations touch several rows or both databases, so they run in transactions.
 
 ### 7.1 Consumables Checkout
 
-Checkout involves both MySQL and MongoDB.
+This one spans MySQL and MongoDB.
 
-1. Retrieve the shopping cart from MongoDB.
+1. Read the cart from MongoDB.
 2. Start a MySQL transaction.
-3. Lock inventory rows and verify stock availability.
-4. Deduct inventory quantities.
-5. Create a request and its order items.
-6. Commit the MySQL transaction.
+3. Lock the inventory rows and check stock.
+4. Deduct stock.
+5. Create the request and its order items.
+6. Commit MySQL.
 7. Start a MongoDB transaction.
-8. Clear the shopping cart and create activity logs and notifications.
-9. Commit the MongoDB transaction.
+8. Clear the cart and write activity logs and notifications.
+9. Commit MongoDB.
 
-If an operation fails before the MySQL commit, SQL changes are rolled back.
-
-If the MongoDB transaction fails after the MySQL commit, Labrador performs compensating SQL operations to restore stock and remove the created order records.
+If anything fails before step 6, MySQL rolls back. If MongoDB fails after the MySQL commit, the app runs compensating SQL to restore the stock and delete the new request and items.
 
 ### 7.2 Equipment Booking
 
-Equipment bookings use MySQL transactions.
+MySQL only:
 
 1. Start a transaction.
-2. Lock the equipment record.
-3. Check equipment availability and maintenance status.
+2. Lock the equipment row.
+3. Check availability and maintenance status.
 4. Check for overlapping bookings.
 5. Insert the booking.
-6. Commit the transaction.
+6. Commit.
 
-If validation or insertion fails, the transaction is rolled back.
+If a check or the insert fails, the transaction rolls back.
 
 **Transaction Sequence Diagram:**
 
@@ -218,6 +187,8 @@ cd ISP-x-Database
 cp .env.example .env
 ```
 
+Edit `.env` if you need different values.
+
 ### 8.3 Install Dependencies
 
 ```bash
@@ -236,7 +207,7 @@ npm run db:up
 npm run reset
 ```
 
-This command creates the database tables and inserts sample data.
+This creates the tables and loads sample data.
 
 **Warning:** This command drops and recreates the MySQL tables.
 
@@ -246,13 +217,11 @@ This command creates the database tables and inserts sample data.
 npm run dev
 ```
 
-Open:
-
-[http://localhost:5173](http://localhost:5173)
+Open [http://localhost:5173](http://localhost:5173).
 
 ### Demo Accounts
 
-All accounts use the password `password123`.
+All demo accounts use the password `password123`.
 
 | Role   | Email                    |
 | ------ | ------------------------ |
@@ -266,9 +235,7 @@ All accounts use the password `password123`.
 
 ## 9. API Documentation
 
-All API endpoints use the `/api` prefix and return JSON responses.
-
-Authentication is handled using session cookies.
+All endpoints use the `/api` prefix and return JSON. Authentication uses a JWT sent as a cookie.
 
 | Module         | Main Endpoints                                              |
 | -------------- | ----------------------------------------------------------- |
@@ -292,58 +259,34 @@ Authentication is handled using session cookies.
 
 ### Testing
 
-Run the backend test suite:
-
 ```bash
 npm --prefix server test
 ```
 
-The project includes 59 automated tests covering:
-
-- CRUD operations.
-- File uploads.
-- Database constraints.
-- Equipment booking validation.
-- Successful checkout.
-- Insufficient stock.
-- Transaction rollback.
+The tests cover CRUD operations, file uploads, database constraints, booking validation, successful checkout, insufficient stock, and transaction rollback.
 
 ### Screenshots
 
-Application screenshots are available in:
+Screenshots are in [`docs/screenshots/`](docs/screenshots/README.md). They show:
 
-`docs/screenshots/`
-
-The screenshots demonstrate application features, CRUD operations, database diagrams, and transaction behavior.
-
----
-
-## 11. Documentation
-
-Additional project documentation is available in the `docs/` directory.
-
-| Document              | Description                         |
-| --------------------- | ----------------------------------- |
-| SRS                   | Software Requirements Specification |
-| Iteration Reports 1–5 | Project development reports         |
-| Architecture Diagram  | System architecture                 |
-| ER Diagram            | MySQL database design               |
-| NoSQL Schema Diagram  | MongoDB database design             |
-| Sequence Diagrams     | System operation workflows          |
-| Presentation          | Project presentation slides         |
+- Authentication and user management.
+- Dashboard, requests, and discussions.
+- Equipment, bookings, and maintenance.
+- Consumable inventory, cart, and checkout.
+- Notifications, announcements, activity logs, and usage statistics.
+- Transaction commits and rollbacks.
+- System architecture, ER, NoSQL schema, and sequence diagrams.
 
 ---
 
-## 12. Project Deliverables
+## 11. Project Documentation
 
-- **GitHub Repository:** [Pandemonium-Abyss/ISP-x-Database](https://github.com/Pandemonium-Abyss/ISP-x-Database)
-- **Presentation Video:** [Watch Labrador Presentation](https://youtu.be/5izrg2WZO20)
-- **Presentation Slides:** `docs/Labrador-presentation.pptx`
-
----
-
-## Project Summary
-
-Labrador is a hybrid database web application that demonstrates the integration of MySQL and MongoDB in a real-world laboratory management system.
-
-It provides complete CRUD operations, database relationships, document-oriented storage, transaction management, and rollback mechanisms through a centralized web application.
+| Resource                    | Location                                                       |
+| --------------------------- | -------------------------------------------------------------- |
+| System Architecture Diagram | [`architecture.png`](docs/diagrams/architecture.png)           |
+| MySQL ER Diagram            | [`er-diagram.png`](docs/diagrams/er-diagram.png)               |
+| MongoDB Schema Diagram      | [`nosql-schema.png`](docs/diagrams/nosql-schema.png)           |
+| Checkout Sequence Diagram   | [`checkout-sequence.png`](docs/diagrams/checkout-sequence.png) |
+| Mermaid Source Files        | [`diagrams/src/`](docs/diagrams/src/)                          |
+| Application Screenshots     | [`screenshots/`](docs/screenshots/README.md)                   |
+| Presentation Slides         | [`Labrador-presentation.pdf`](docs/Labrador-presentation.pdf)  |
