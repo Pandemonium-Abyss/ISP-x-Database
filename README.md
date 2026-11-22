@@ -18,6 +18,7 @@ It uses two databases. MySQL holds the relational data (users, equipment, invent
 | Anawin Chaichana         | 6810545964 | [0n0w1n](https://github.com/0n0w1n)                 |
 
 ---
+
 ## Project Deliverables
 
 - **GitHub Repository:** [Pandemonium-Abyss/ISP-x-Database](https://github.com/Pandemonium-Abyss/ISP-x-Database) (complete source code and setup instructions in README)
