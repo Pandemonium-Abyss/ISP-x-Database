@@ -6,6 +6,19 @@ It uses two databases. MySQL holds the relational data (users, equipment, invent
 
 ---
 
+## Team members
+
+| Name                     | Student ID | GitHub                                              |
+| ------------------------ | ---------- | --------------------------------------------------- |
+| Kantinan Lertluckpreecha | 6810545476 | [LELOUCH2L](https://github.com/LELOUCH2L)           |
+| Jedsada Ungsunantwiwat   | 6810545522 | [Jadeung123](https://github.com/Jadeung123)         |
+| Pathadon Aougsk          | 6810545808 | [PathadonAougsk](https://github.com/PathadonAougsk) |
+| Wassawin Swangjaeng      | 6810545905 | [CYRTRUS](https://github.com/CYRTRUS)               |
+| Siraphob Phonphakdee     | 6810545930 | [vaporform](https://github.com/vaporform)           |
+| Anawin Chaichana         | 6810545964 | [0n0w1n](https://github.com/0n0w1n)                 |
+
+---
+
 ## Project Deliverables
 
 - **GitHub Repository:** [Pandemonium-Abyss/ISP-x-Database](https://github.com/Pandemonium-Abyss/ISP-x-Database) (complete source code and setup instructions in README)
@@ -170,7 +183,7 @@ If a check or the insert fails, the transaction rolls back.
 
 ### Prerequisites
 
-- Node.js 20 or later.
+- Node.js 22.9 or later (the server scripts use `node --env-file-if-exists`).
 - Docker Desktop.
 - Git.
 
@@ -259,9 +272,27 @@ All endpoints use the `/api` prefix and return JSON. Authentication uses a JWT s
 
 ### Testing
 
-```bash
-npm --prefix server test
-```
+The test suite sends requests to the running API, so the databases must be up, seeded, and the app running first.
+
+1. Reset and seed the databases:
+
+   ```bash
+   npm run reset
+   ```
+
+2. Start the app in one terminal:
+
+   ```bash
+   npm run dev
+   ```
+
+3. Run the tests in a second terminal:
+
+   ```bash
+   npm --prefix server test
+   ```
+
+The tests expect the API at `http://localhost:4000/api`. Set the `API` environment variable to use a different address. They create and change data, so run `npm run reset` again afterwards if you want the original sample data back.
 
 The tests cover CRUD operations, file uploads, database constraints, booking validation, successful checkout, insufficient stock, and transaction rollback.
 
